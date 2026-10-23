@@ -27,15 +27,42 @@ interface Props {
   onDelete: (id: string) => void;
 }
 
+// Calculate checklist counts
+function getChecklistStats(content: string) {
+  const lines = (content || "").split("\n");
+  let total = 0;
+  let done = 0;
+  for (const line of lines) {
+    const match = line.match(/^\s*(☐|☑|\[ \]|\[x\]|- \[ \]| - \[x\])/i);
+    if (match) {
+      total++;
+      if (match[1] === "☑" || match[1].toLowerCase().includes("x")) {
+        done++;
+      }
+    }
+  }
+  return { total, done, hasChecklist: total > 0 };
+}
+
 export default function NotesView({ notes, onAdd, onUpdate, onDelete }: Props) {
   const { fg, fgMuted, cardBorder, inputBg, bg } = useThemeStyles();
   
   // States
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
+  const [activeNoteId, setActiveNoteId] = useState<string | null>(() => {
+    const saved = typeof window !== "undefined" ? localStorage.getItem("focusflow_active_note_id") : null;
+    if (saved && notes.some((n) => n.id === saved)) {
+      return saved;
+    }
+    return notes.length > 0 ? notes[0].id : null;
+  });
   const [showMobileEditor, setShowMobileEditor] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
-  const [interactiveMode, setInteractiveMode] = useState(false);
+  const [interactiveMode, setInteractiveMode] = useState<boolean>(() => {
+    const saved = typeof window !== "undefined" ? localStorage.getItem("focusflow_active_note_id") : null;
+    const target = (saved && notes.find((n) => n.id === saved)) || (notes.length > 0 ? notes[0] : null);
+    return target ? getChecklistStats(target.content).hasChecklist : false;
+  });
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const activeNote = notes.find((n) => n.id === activeNoteId) || null;
@@ -45,36 +72,32 @@ export default function NotesView({ notes, onAdd, onUpdate, onDelete }: Props) {
     if (notes.length > 0) {
       const activeExists = notes.some((n) => n.id === activeNoteId);
       if (!activeExists) {
-        setActiveNoteId(notes[0].id);
+        const nextId = notes[0].id;
+        setActiveNoteId(nextId);
         setShowMobileEditor(false);
+        setInteractiveMode(getChecklistStats(notes[0].content).hasChecklist);
       }
     } else {
       setActiveNoteId(null);
       setShowMobileEditor(false);
+      setInteractiveMode(false);
     }
   }, [notes, activeNoteId]);
 
-  // Reset interactive mode on active note switch
+  // Default to ticking/interactive mode when switching to or re-opening a note with checklist items
   useEffect(() => {
-    setInteractiveMode(false);
-  }, [activeNoteId]);
-
-  // Calculate checklist counts
-  const getChecklistStats = (content: string) => {
-    const lines = (content || "").split("\n");
-    let total = 0;
-    let done = 0;
-    for (const line of lines) {
-      const match = line.match(/^\s*(☐|☑|\[ \]|\[x\]|- \[ \]| - \[x\])/i);
-      if (match) {
-        total++;
-        if (match[1] === "☑" || match[1].toLowerCase().includes("x")) {
-          done++;
-        }
+    if (activeNoteId) {
+      if (typeof window !== "undefined") {
+        localStorage.setItem("focusflow_active_note_id", activeNoteId);
+      }
+      const note = notes.find((n) => n.id === activeNoteId);
+      if (note && getChecklistStats(note.content).hasChecklist) {
+        setInteractiveMode(true);
+        return;
       }
     }
-    return { total, done, hasChecklist: total > 0 };
-  };
+    setInteractiveMode(false);
+  }, [activeNoteId]);
 
   const checklistStats = activeNote ? getChecklistStats(activeNote.content) : { total: 0, done: 0, hasChecklist: false };
 
@@ -220,6 +243,7 @@ export default function NotesView({ notes, onAdd, onUpdate, onDelete }: Props) {
 
   // Handle note creation
   const handleCreateNote = () => {
+    setInteractiveMode(false);
     onAdd({
       title: "یادداشت جدید",
       content: "",
@@ -233,6 +257,7 @@ export default function NotesView({ notes, onAdd, onUpdate, onDelete }: Props) {
         setActiveNoteId(notes[0].id);
       }
       setShowMobileEditor(true);
+      setInteractiveMode(false);
     }, 60);
   };
 
@@ -329,6 +354,9 @@ export default function NotesView({ notes, onAdd, onUpdate, onDelete }: Props) {
                     onClick={() => {
                       setActiveNoteId(note.id);
                       setShowMobileEditor(true);
+                      if (stats.hasChecklist) {
+                        setInteractiveMode(true);
+                      }
                     }}
                     className="w-full text-right p-3.5 transition-all cursor-pointer relative group block border-r-2"
                     style={{
