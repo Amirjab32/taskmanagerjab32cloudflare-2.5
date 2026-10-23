@@ -1,0 +1,9 @@
+# Cursor / Copilot / AI Agent Rules for this project
+
+You MUST read and strictly adhere to `PROJECT_DESIGN_BLUEPRINT.md`.
+- Never rewrite or restyle existing components with generic UI or LTR layouts.
+- Always use RTL (`dir="rtl"`) and Persian language formatting.
+- Always preserve the deep dark mode palette (`#0d0d0d`, `#111111`, `cardBorder: rgba(255,255,255,0.1)`).
+- Use Tailwind CSS, lucide-react, framer-motion, and React 19.
+- Preserve version 2.4 (نسخه ۲.۴) in navigation footers.
+- Retain the exact 6 planner timeline lanes, task hashtags, and notes checklist/timestamp badges.

@@ -1,0 +1,34 @@
+{
+  "focusflow_tasks": [],
+  "focusflow_recurring_activities": [],
+  "focusflow_habits": [
+    {
+      "id": "system-habit-stay-in-study",
+      "name": "ماندن در محیط درس",
+      "color": "#6366f1",
+      "completed_dates": [],
+      "created_date": "2026-01-01",
+      "streakCount": 0,
+      "lastCompletedDate": "",
+      "is_pinned": true
+    }
+  ],
+  "focusflow_habit_groups": [],
+  "focusflow_topics": [],
+  "focusflow_quiz_subjects": [],
+  "focusflow_quiz_entries": [],
+  "focusflow_timeline_entries": [],
+  "focusflow_notes": [],
+  "focusflow_memories": [],
+  "focusflow_going_up_settings": {},
+  "focusflow_going_up_state": {},
+  "focusflow_going_up_evaluated_days": [],
+  "focusflow_planner": [],
+  "focusflow_planner_presets": [],
+  "focusflow_planner_threshold": [],
+  "focusflow_konkur_date": "2027-06-25",
+  "focusflow_final_exams_date": "2027-05-20",
+  "focusflow_active_preset_id": "default",
+  "focusflow_safe_mode": "true",
+  "focusflow-theme": "dark"
+}

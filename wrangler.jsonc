@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "focusflow-task-manager",
+  "main": "src/worker.ts",
+  "compatibility_date": "2024-09-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "single-page-application"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "DB_KV",
+      "id": "FOCUSFLOW_DB_KV"
+    }
+  ],
+  // در صورت تمایل به استفاده از بخش تبادل فایل، باکت R2 بسازید و خطوط زیر را فعال کنید:
+  // "r2_buckets": [
+  //   {
+  //     "binding": "FILES_BUCKET",
+  //     "bucket_name": "focusflow-files"
+  //   }
+  // ],
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  }
+}

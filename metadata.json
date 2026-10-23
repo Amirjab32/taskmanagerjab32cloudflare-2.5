@@ -1,0 +1,8 @@
+{
+  "name": "Task Manager",
+  "description": "A comprehensive task, habit, Kanban, SRS, and quiz tracker with Persian/Jalali calendar support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

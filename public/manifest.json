@@ -1,0 +1,38 @@
+{
+  "id": "/",
+  "name": "FocusFlow",
+  "short_name": "FocusFlow",
+  "description": "سامانه جامع مدیریت هوشمند برنامه‌ریزی روزانه، عادات، تسک‌ها و آزمون‌ها",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#121214",
+  "theme_color": "#f59e0b",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-512x512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    }
+  ]
+}
