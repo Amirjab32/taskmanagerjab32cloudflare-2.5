@@ -1,7 +1,6 @@
 /**
- * سیستم هماهنگ‌سازی خودکار دیتابیس با لپ‌تاپ (Vite/Express Backend)
- * این سیستم به کلاینت‌ها (گوشی یا لپ‌تاپ) اجازه می‌دهد اطلاعات را روی فایل فیزیکی ذخیره کرده
- * و در شبکه محلی همگام‌سازی نمایند.
+ * سیستم هماهنگ‌سازی خودکار دیتابیس با سرور ابری کلادفلر (Cloudflare Worker & KV)
+ * تمام دستگاه‌ها (گوشی، لپ‌تاپ و تبلت) به صورت مستقل و مستقیم با کلادفلر تبادل اطلاعات دارند.
  */
 import { exportDatabase, importDatabase } from "./store";
 
@@ -58,11 +57,26 @@ class SyncManager {
         this.lastSyncedMtime = parseFloat(cachedTime);
       }
 
-      // شنود تغییرات دیتابیس محلی برای ارسال سریع به سرور (Push)
+      // شنود تغییرات دیتابیس محلی برای ارسال به سرور (Push)
       window.addEventListener("focusflow-data-changed", () => {
         this.hasUnsavedLocalChanges = true;
         this.setStatus("syncing");
         this.schedulePush();
+      });
+
+      // ارسال فوری تغییرات تایمر زنده (استارت/استپ) بدون تاخیر دی‌بونس
+      window.addEventListener("focusflow-planner-timer-change", () => {
+        this.triggerImmediatePush();
+      });
+
+      // پایش فوری وضعیت سرور هنگام باز کردن قفل گوشی یا بازگشت به تب مرورگر
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+          this.pullFromServer(true);
+        }
+      });
+      window.addEventListener("focus", () => {
+        this.pullFromServer(true);
       });
 
       // شروع همگام‌سازی دوره‌ای و خودکار در پس‌زمینه
@@ -80,6 +94,16 @@ class SyncManager {
 
   public getStatus(): SyncStatus {
     return this.currentStatus;
+  }
+
+  // ارسال فوری اطلاعات به سرور بدون تاخیر
+  public triggerImmediatePush() {
+    if (this.pendingPushTimeout) {
+      clearTimeout(this.pendingPushTimeout);
+      this.pendingPushTimeout = null;
+    }
+    this.hasUnsavedLocalChanges = true;
+    this.pushLocalToServer();
   }
 
   // فرستادن اطلاعات محلی به سرور با تکنیک Debounce برای بهینه‌سازی ترافیک شبکه

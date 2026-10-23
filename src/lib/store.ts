@@ -1136,6 +1136,11 @@ export function exportDatabase(): string {
   data["focusflow_active_preset_id"] = localStorage.getItem("focusflow_active_preset_id") || "default";
   data["focusflow_safe_mode"] = localStorage.getItem("focusflow_safe_mode") || "true";
   data["focusflow-theme"] = localStorage.getItem("focusflow-theme") || "dark";
+
+  // همگام‌سازی وضعیت زنده تایمر پلنر بین تمام دستگاه‌ها
+  const activeTimerRaw = localStorage.getItem("focusflow_active_planner_timer");
+  data["focusflow_active_planner_timer"] = activeTimerRaw ? JSON.parse(activeTimerRaw) : null;
+
   return JSON.stringify(data, null, 2);
 }
 
@@ -1166,6 +1171,25 @@ export function importDatabase(jsonString: string): boolean {
     if (parsed["focusflow-theme"]) {
       localStorage.setItem("focusflow-theme", parsed["focusflow-theme"]);
     }
+
+    // همگام‌سازی بلادرنگ تایمر فعال پلنر
+    if ("focusflow_active_planner_timer" in parsed) {
+      const prevTimerRaw = localStorage.getItem("focusflow_active_planner_timer");
+      const newTimer = parsed["focusflow_active_planner_timer"];
+      const newTimerStr = newTimer ? JSON.stringify(newTimer) : null;
+
+      if (prevTimerRaw !== newTimerStr) {
+        if (newTimerStr) {
+          localStorage.setItem("focusflow_active_planner_timer", newTimerStr);
+        } else {
+          localStorage.removeItem("focusflow_active_planner_timer");
+        }
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("focusflow-planner-timer-change", { detail: newTimer || null }));
+        }
+      }
+    }
+
     return true;
   } catch {
     return false;

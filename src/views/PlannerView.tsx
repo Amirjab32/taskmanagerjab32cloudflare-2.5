@@ -414,6 +414,7 @@ export default function PlannerView() {
       setEntries(PlannerStore.listByDate(currentDate));
       setActivities(RecurringActivityStore.list());
       setPresets(PlannerPresetStore.list());
+      setActiveTimer(PlannerTimerService.getActiveTimer());
     };
     const handleTimerChange = (e: Event) => {
       const customEvent = e as CustomEvent<ActivePlannerTimer | null>;
@@ -426,12 +427,14 @@ export default function PlannerView() {
     };
 
     window.addEventListener("focusflow-data-changed", handleDataChanged);
+    window.addEventListener("focusflow-db-synced", handleDataChanged);
     window.addEventListener("focusflow-planner-presets-changed", handleDataChanged);
     window.addEventListener("focusflow-planner-timer-change", handleTimerChange);
     window.addEventListener("focusflow-threshold-changed", handleThresholdChange as any);
 
     return () => {
       window.removeEventListener("focusflow-data-changed", handleDataChanged);
+      window.removeEventListener("focusflow-db-synced", handleDataChanged);
       window.removeEventListener("focusflow-planner-presets-changed", handleDataChanged);
       window.removeEventListener("focusflow-planner-timer-change", handleTimerChange);
       window.removeEventListener("focusflow-threshold-changed", handleThresholdChange as any);

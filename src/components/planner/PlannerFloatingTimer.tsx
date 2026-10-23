@@ -16,8 +16,18 @@ export default function PlannerFloatingTimer() {
       setActiveTimer(customEvent.detail);
     };
 
+    const handleSync = () => {
+      setActiveTimer(PlannerTimerService.getActiveTimer());
+    };
+
     window.addEventListener("focusflow-planner-timer-change", handleTimerChange);
-    return () => window.removeEventListener("focusflow-planner-timer-change", handleTimerChange);
+    window.addEventListener("focusflow-db-synced", handleSync);
+    window.addEventListener("focusflow-data-changed", handleSync);
+    return () => {
+      window.removeEventListener("focusflow-planner-timer-change", handleTimerChange);
+      window.removeEventListener("focusflow-db-synced", handleSync);
+      window.removeEventListener("focusflow-data-changed", handleSync);
+    };
   }, []);
 
   // Update clock every second when timer is running
