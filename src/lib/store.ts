@@ -703,15 +703,18 @@ export const PlannerStore = {
       setStore(PLANNER_KEY, list, true);
       return newEntries;
     }
-    return dayEntries.sort((a, b) => a.order - b.order);
+    return dayEntries.sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
   },
   saveAll(list: PlannerEntry[]): void {
     setStore(PLANNER_KEY, list);
   },
   create(date: string, data: Partial<PlannerEntry>): PlannerEntry {
     const list = getStore<PlannerEntry>(PLANNER_KEY);
-    const dayEntries = list.filter((e) => e.date === date);
-    const maxOrder = dayEntries.reduce((max, e) => (e.order > max ? e.order : max), -1);
+    const otherEntries = list.filter((e) => e.date !== date);
+    const dayEntries = list
+      .filter((e) => e.date === date)
+      .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+
     const entry: PlannerEntry = {
       id: generateId(),
       date,
@@ -727,27 +730,35 @@ export const PlannerStore = {
       actual_music: data.actual_music || "",
       subject: data.subject || "",
       created_date: getToday(),
-      order: maxOrder + 1,
+      order: dayEntries.length,
     };
     if (typeof window !== "undefined" && window.localStorage) {
       window.localStorage.setItem(`focusflow_custom_applied_${date}`, "custom");
     }
-    list.push(entry);
-    setStore(PLANNER_KEY, list);
+    dayEntries.push(entry);
+    dayEntries.forEach((e, idx) => {
+      e.order = idx;
+    });
+    setStore(PLANNER_KEY, [...otherEntries, ...dayEntries]);
     return entry;
   },
-  insertAt(date: string, index: number, data: Partial<PlannerEntry>): PlannerEntry {
+  insertAt(date: string, index: number, data: Partial<PlannerEntry>, afterId?: string): PlannerEntry {
     const list = getStore<PlannerEntry>(PLANNER_KEY);
-    // تفکیک روز جاری و مرتب‌سازی دقیق بر اساس ترتیب قبلی
-    const dayEntries = list.filter((e) => e.date === date).sort((a, b) => a.order - b.order);
-    
-    // شیفت دادن ترتیب‌های بعد از ایندکس هدف به میزان ۱ واحد
-    dayEntries.forEach((entry, idx) => {
-      if (idx >= index) {
-        entry.order += 1;
+    const otherEntries = list.filter((e) => e.date !== date);
+    const dayEntries = list
+      .filter((e) => e.date === date)
+      .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+
+    // تعیین دقیق اندیس درج: بر اساس شناسه سطر انتخاب‌شده یا ایندکس
+    let insertIndex = index;
+    if (afterId) {
+      const foundIdx = dayEntries.findIndex((e) => e.id === afterId);
+      if (foundIdx !== -1) {
+        insertIndex = foundIdx + 1;
       }
-    });
-    
+    }
+    insertIndex = Math.max(0, Math.min(insertIndex, dayEntries.length));
+
     const entry: PlannerEntry = {
       id: generateId(),
       date,
@@ -763,14 +774,22 @@ export const PlannerStore = {
       actual_music: data.actual_music || "",
       subject: data.subject || "",
       created_date: getToday(),
-      order: index,
+      order: insertIndex,
     };
-    
+
+    dayEntries.splice(insertIndex, 0, entry);
+
+    // بازتخصیص متوالی و قطعی فیلد order برای تمام سطرهای روز جاری از 0 تا N
+    dayEntries.forEach((e, idx) => {
+      e.order = idx;
+    });
+
     if (typeof window !== "undefined" && window.localStorage) {
       window.localStorage.setItem(`focusflow_custom_applied_${date}`, "custom");
     }
-    list.push(entry);
-    setStore(PLANNER_KEY, list);
+
+    const updatedList = [...otherEntries, ...dayEntries];
+    setStore(PLANNER_KEY, updatedList);
     return entry;
   },
   get(id: string): PlannerEntry | null {
@@ -816,11 +835,18 @@ export const PlannerStore = {
   delete(id: string): void {
     const list = getStore<PlannerEntry>(PLANNER_KEY);
     const target = list.find((e) => e.id === id);
-    if (target && typeof window !== "undefined" && window.localStorage) {
+    if (!target) return;
+    if (typeof window !== "undefined" && window.localStorage) {
       window.localStorage.setItem(`focusflow_custom_applied_${target.date}`, "custom");
     }
-    const filteredList = list.filter((e) => e.id !== id);
-    setStore(PLANNER_KEY, filteredList);
+    const otherEntries = list.filter((e) => e.date !== target.date);
+    const dayEntries = list
+      .filter((e) => e.date === target.date && e.id !== id)
+      .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+    dayEntries.forEach((entry, idx) => {
+      entry.order = idx;
+    });
+    setStore(PLANNER_KEY, [...otherEntries, ...dayEntries]);
   },
   replaceDayEntries(date: string, slots: any[]): PlannerEntry[] {
     const list = getStore<PlannerEntry>(PLANNER_KEY);

@@ -696,7 +696,7 @@ export default function PlannerView() {
     }
   };
 
-  const handleInsertRowBetween = (index: number) => {
+  const handleInsertRowBetween = (index: number, entryId?: string) => {
     PlannerStore.insertAt(currentDate, index + 1, {
       time_slot: "00:00 - 00:00",
       subject: "",
@@ -709,7 +709,8 @@ export default function PlannerView() {
       actual_side: "",
       actual_rest: "",
       actual_music: ""
-    });
+    }, entryId);
+    pendingFocusRef.current = { rowIndex: index + 1, colIndex: 0 };
     setEntries(PlannerStore.listByDate(currentDate));
     setToastMessage("بازه زمانی جدید مابین سطرها ایجاد شد.");
   };
@@ -1298,7 +1299,7 @@ export default function PlannerView() {
                               )}
                               <button
                                 type="button"
-                                onClick={() => handleInsertRowBetween(rowIndex)}
+                                onClick={() => handleInsertRowBetween(rowIndex, entry.id)}
                                 className="p-1 rounded hover:bg-emerald-500/10 text-gray-400 hover:text-emerald-400 transition-colors cursor-pointer inline-flex items-center justify-center"
                                 title="ایجاد بازه جدید زیر این سطر"
                               >
