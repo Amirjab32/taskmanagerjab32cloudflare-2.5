@@ -74,27 +74,42 @@ export default function PlannerLinkModal({ isOpen, onClose, entry, onSave }: Pro
       });
     }
 
+    const getCompletedDateStr = (timestamp: number | null | undefined): string | null => {
+      if (!timestamp) return null;
+      const d = new Date(timestamp);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    };
+
     return tasks
       .filter((task) => {
         // تسک متصل شده فعلی همیشه حفظ شود تا انتخاب قبلی گم نشود
         if (task.id === selectedTaskId) return true;
 
         const taskDate = task.scheduled_date || task.created_date;
+        const completedDateStr = getCompletedDateStr(task.completed_at);
 
         // ۱. اگر تاریخ تسک دقیقاً همان تاریخ بازه پلنر باشد (فارغ از وضعیت: انجام‌شده، در حال انجام یا در انتظار)
         if (taskDate === targetDate) return true;
 
-        // ۲. اگر روز پلنر «امروز» باشد، تمامی تسک‌های تاریخ گذشته (شامل انجام‌شده یا عقب‌افتاده) نمایش داده شوند
-        if (isTargetToday && taskDate < today) {
-          return true;
-        }
+        // ۲. اگر تسک در این تاریخ انتخابی پلنر تکمیل شده باشد
+        if (completedDateStr && completedDateStr === targetDate) return true;
 
-        // ۳. اگر تاریخ تکمیل تسک با تاریخ انتخابی پلنر مطابقت داشته باشد
-        if (task.completed_at) {
-          const cDate = new Date(task.completed_at);
-          const pad = (n: number) => String(n).padStart(2, "0");
-          const completedDateStr = `${cDate.getFullYear()}-${pad(cDate.getMonth() + 1)}-${pad(cDate.getDate())}`;
-          if (completedDateStr === targetDate) return true;
+        // ۳. قانون تسک‌های تعویقی برای روز جاری («امروز»):
+        // اگر تسک مربوط به روزهای قبل است (taskDate < today):
+        if (isTargetToday && taskDate < today) {
+          // فقط در صورتی تعویقی به حساب می‌آید که تا به امروز اتمام نشده باشد
+          if (task.status !== "done") {
+            return true;
+          }
+
+          // تبصره: اگر تسک تعویق‌خورده در روز جاری («امروز») تیک خورده و به اتمام رسیده باشد
+          if (completedDateStr === today) {
+            return true;
+          }
+
+          // اگر در روزهای گذشته تکمیل شده بود، تسک اتمام‌شده است نه تعویقی، پس نمایش داده نمی‌شود
+          return false;
         }
 
         return false;
@@ -217,6 +232,11 @@ export default function PlannerLinkModal({ isOpen, onClose, entry, onSave }: Pro
                             در حال انجام
                           </span>
                         )}
+                        {selectedTask.status === "todo" && (
+                          <span className="rounded px-1.5 py-0.5 text-[9px] bg-slate-500/15 text-slate-300">
+                            در انتظار
+                          </span>
+                        )}
                       </>
                     ) : (
                       <span className="text-zinc-400">-- بدون اتصال به تسک --</span>
@@ -312,6 +332,11 @@ export default function PlannerLinkModal({ isOpen, onClose, entry, onSave }: Pro
                                   در حال انجام
                                 </span>
                               )}
+                              {task.status === "todo" && (
+                                <span className="rounded px-1.5 py-0.5 text-[9px] bg-slate-500/15 text-slate-300">
+                                  در انتظار
+                                </span>
+                              )}
                               {isPastDate && (
                                 <span className="rounded px-1.5 py-0.5 text-[9px] bg-zinc-800 text-zinc-400">
                                   {toPersianDigits(toShamsiShort(taskDate))}
@@ -336,7 +361,7 @@ export default function PlannerLinkModal({ isOpen, onClose, entry, onSave }: Pro
                   {showAllTasks
                     ? "نمایش همه تسک‌ها از تمام تاریخ‌ها"
                     : isTargetToday
-                    ? `تسک‌های امروز (${toPersianDigits(targetDateShamsi)}) و تسک‌های گذشته`
+                    ? `تسک‌های امروز (${toPersianDigits(targetDateShamsi)}) و تسک‌های تعویقی`
                     : `تسک‌های مربوط به ${toPersianDigits(targetDateShamsi)}`}
                 </p>
                 <button

@@ -257,6 +257,88 @@ function parseMinutesValue(val: string | undefined, isRest: boolean = false): nu
   return Math.round(num);
 }
 
+// بررسی دقیق اینکه آیا یک بازه زمانی شامل زمان لحظه‌ای کنونی است یا خیر
+function isSlotCurrentTime(slot: string, dateStr: string, now: Date = new Date()): boolean {
+  if (!slot || !dateStr) return false;
+  if (dateStr !== getGregorianToday()) return false;
+
+  let str = toEnglishDigits(slot);
+  str = str.replace(/[\u200e\u200f\u202a\u202b\u202c\u202d\u202e\ufeff]/g, "");
+  str = str.replace(/[\s]*[ـ\-‐‑‒–—―⁃⁻₋−➖_~〜〰\/\\]+[\s]*/g, "-");
+  str = str.replace(/(تا ساعت|الی ساعت|تا|الی|to)/gi, "-");
+
+  let parts = str.split("-").map(p => p.trim()).filter(Boolean);
+  if (parts.length !== 2) {
+    const timeMatches = str.match(/\d{1,2}[:.٫]\d{2}/g);
+    if (timeMatches && timeMatches.length === 2) {
+      parts = [timeMatches[0], timeMatches[1]];
+    } else {
+      const numberMatches = str.match(/\d{3,4}/g);
+      if (numberMatches && numberMatches.length === 2) {
+        parts = [numberMatches[0], numberMatches[1]];
+      } else {
+        return false;
+      }
+    }
+  }
+
+  const parseTimeStr = (t: string): { h: number; m: number } | null => {
+    let normalized = t.replace(/[./\/\\٫]/g, ":");
+    const clean = normalized.replace(/[^0-9:]/g, "");
+    if (!clean) return null;
+    let h = 0;
+    let m = 0;
+    if (clean.includes(":")) {
+      const bits = clean.split(":").map(Number);
+      h = bits[0] || 0;
+      m = bits[1] || 0;
+    } else {
+      const num = Number(clean);
+      if (num >= 100 && num <= 2400) {
+        h = Math.floor(num / 100);
+        m = num % 100;
+      } else {
+        h = num;
+        m = 0;
+      }
+    }
+    const isPm = /pm|بعد از ظهر|بعد‌از‌ظهر|عصر|شب/i.test(t);
+    if (isPm && h < 12) h += 12;
+    const isAm = /am|صبح|قبل از ظهر|قبل‌از‌ظهر/i.test(t);
+    if (isAm && h === 12) h = 0;
+    if (h >= 0 && h <= 24 && m >= 0 && m < 60) {
+      if (h === 24) h = 0;
+      return { h, m };
+    }
+    return null;
+  };
+
+  const start = parseTimeStr(parts[0]);
+  const end = parseTimeStr(parts[1]);
+  if (!start || !end) return false;
+
+  let startMin = start.h * 60 + start.m;
+  let endMin = end.h * 60 + end.m;
+
+  const diff = endMin - startMin;
+  if (diff < 0) {
+    const absDiff = Math.abs(diff);
+    if (absDiff < 720) {
+      // اگر کمتر از ۱۲ ساعت اختلاف داشته باشد، ترتیب تایپ معکوس بوده است
+      const temp = startMin;
+      startMin = endMin;
+      endMin = temp;
+    } else {
+      // بازه از نیمه‌شب عبور کرده است (مانند 23:00 تا 01:00)
+      const currentMin = now.getHours() * 60 + now.getMinutes();
+      return currentMin >= startMin || currentMin < endMin;
+    }
+  }
+
+  const currentMin = now.getHours() * 60 + now.getMinutes();
+  return currentMin >= startMin && currentMin < endMin;
+}
+
 // خواندن کل رکوردهای برنامه‌ریزی به صورت خام از لوکال استوریج برای آمار سراسری
 function getAllPlannerEntriesRaw(): PlannerEntry[] {
   try {
@@ -365,6 +447,16 @@ export default function PlannerView() {
     }, 1000);
     return () => clearInterval(interval);
   }, [activeTimer]);
+
+  // پیگیری ریل‌تایم زمان جاری برای تشخیص دقیق بازه زمانی هم‌اکنون و نمایش فلش راهنما
+  const [nowTime, setNowTime] = useState<Date>(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowTime(new Date());
+    }, 10000);
+    return () => clearInterval(timer);
+  }, []);
+
 
   // هماهنگی حالت اطمینان از منوی کشویی هدر/سایدبار
   useEffect(() => {
@@ -1089,26 +1181,28 @@ export default function PlannerView() {
                   <b>چرا وجود تیک بازه مهم است؟</b> تیک زدن پارت‌ها علاوه بر ثبت اتمام بازه، تسک‌ها و عادات متصل را به طور خودکار ثبت و هماهنگ می‌کند!
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setThresholdInput(globalThreshold.toString());
-                  setShowThresholdModal(true);
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 transition-all font-bold text-xs cursor-pointer self-start sm:self-auto flex-shrink-0"
-                title="تنظیم درصد قبولی برای کل پلنر"
-              >
-                <SlidersHorizontal className="h-3.5 w-3.5" />
-                <span>حد نصاب قبولی سیستم: {toPersianDigits(globalThreshold)}٪</span>
-              </button>
+              <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setThresholdInput(globalThreshold.toString());
+                    setShowThresholdModal(true);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 transition-all font-bold text-xs cursor-pointer flex-shrink-0"
+                  title="تنظیم درصد قبولی برای کل پلنر"
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                  <span>حد نصاب قبولی سیستم: {toPersianDigits(globalThreshold)}٪</span>
+                </button>
+              </div>
             </div>
 
             {/* جدول برنامه‌ریزی (Excel-like UI) */}
             <div 
-              className="rounded-3xl border overflow-hidden shadow-xl"
+              className="rounded-3xl border shadow-xl relative"
               style={{ borderColor: cardBorder, backgroundColor: sidebarBg }}
             >
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto pr-7 sm:pr-9">
                 <table className="w-full text-right border-collapse min-w-[780px]">
                   <thead>
                     <tr className="border-b text-[10px] font-black tracking-wider text-gray-400 select-none bg-white/5" style={{ borderColor: cardBorder }}>
@@ -1168,10 +1262,12 @@ export default function PlannerView() {
                         const hasConflict = planExceeded || planDeficit || actualExceeded || actualDeficit;
 
                         const isOpenUpwards = entries.length > 2 && rowIndex >= entries.length - 2;
+                        const isCurrentSlot = isSlotCurrentTime(entry.time_slot, currentDate, nowTime);
 
                         return (
                           <motion.tr 
                             key={entry.id}
+                            id={`planner-row-${entry.id}`}
                             initial={{ opacity: 0, y: 4 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, x: -20 }}
@@ -1181,11 +1277,25 @@ export default function PlannerView() {
                               borderColor: cardBorder,
                               background: progressPercent > 0 
                                 ? `linear-gradient(to left, ${isPassedThreshold ? 'rgba(16, 185, 129, 0.08)' : 'rgba(245, 158, 11, 0.08)'} ${progressPercent}%, transparent ${progressPercent}%)` 
-                                : undefined 
+                                : undefined
                             }}
                           >
-                            {/* ایجاد بازه مابین */}
-                            <td className="py-2 px-1 text-center" style={{ width: 40 }}>
+                            {/* ایجاد بازه مابین و نشانگر فلش بازه جاری */}
+                            <td className="py-2 px-1 text-center relative" style={{ width: 40 }}>
+                              {isCurrentSlot && (
+                                <div 
+                                  className="absolute -right-6 sm:-right-7 top-1/2 -translate-y-1/2 flex items-center justify-center pointer-events-none select-none z-20"
+                                  title="بازه زمانی هم‌اکنون"
+                                >
+                                  <svg 
+                                    className="w-5 h-5 text-blue-300 fill-blue-300" 
+                                    viewBox="0 0 16 16"
+                                    aria-hidden="true"
+                                  >
+                                    <path d="M2.5 8l9.5-6.5v13L2.5 8z" />
+                                  </svg>
+                                </div>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => handleInsertRowBetween(rowIndex)}
@@ -1243,8 +1353,10 @@ export default function PlannerView() {
                                   value={entry.time_slot}
                                   onChange={(e) => handleCellChange(entry.id, "time_slot", e.target.value)}
                                   placeholder="مثلاً ۰۹:۰۰"
-                                  className={`w-full bg-transparent border-0 px-0.5 py-1 text-xs font-bold text-center focus:ring-1 rounded-lg text-gray-200 transition-all placeholder:text-gray-600 focus:bg-white/5 ${
-                                    hasConflict ? "text-rose-400 focus:ring-rose-500" : "focus:ring-amber-500"
+                                  className={`w-full bg-transparent border-0 px-0.5 py-1 text-xs font-bold text-center focus:ring-1 rounded-lg transition-all placeholder:text-gray-600 focus:bg-white/5 ${
+                                    hasConflict
+                                      ? "text-rose-400 focus:ring-rose-500"
+                                      : "text-gray-200 focus:ring-amber-500"
                                   }`}
                                 />
                                 
