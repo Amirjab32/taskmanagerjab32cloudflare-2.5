@@ -1,6 +1,7 @@
 // سیستم یکپارچه اعلان‌های هوشمند FocusFlow (دوگانه: پوش آنلاین + آفلاین محلی PWA)
 import { HabitStore } from "./store";
 import { getGregorianToday } from "./shamsi";
+import { AudioStorageService } from "./audioStorage";
 
 export type NotificationPermissionState = "default" | "granted" | "denied" | "unsupported";
 
@@ -102,11 +103,44 @@ export async function requestNotificationPermission(): Promise<boolean> {
   }
 }
 
+let sharedAudioContext: AudioContext | null = null;
+
+function getSharedAudioContext(): AudioContext | null {
+  if (typeof window === "undefined") return null;
+  if (!sharedAudioContext) {
+    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (AudioContextClass) {
+      sharedAudioContext = new AudioContextClass();
+    }
+  }
+  if (sharedAudioContext && sharedAudioContext.state === "suspended") {
+    sharedAudioContext.resume().catch(() => {});
+  }
+  return sharedAudioContext;
+}
+
+// باز کردن قفل سشن صوتی مرورگر موبایل با اولین لمس کاربر
+if (typeof window !== "undefined") {
+  const unlockAudio = () => {
+    const ctx = getSharedAudioContext();
+    if (ctx && ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
+    }
+  };
+  window.addEventListener("click", unlockAudio, { once: true });
+  window.addEventListener("touchstart", unlockAudio, { once: true });
+}
+
 // پخش صدای زنگ واقعی از فایل‌های صوتی استاندارد با قابلیت پخش فایل سفارشی کاربر
-export function playNotificationTone(soundId: string = "hygiene"): void {
+export async function playNotificationTone(soundId: string = "hygiene"): Promise<void> {
   try {
     let src = `/sounds/${soundId}.mp3`;
-    if (soundId.startsWith("data:") || soundId.startsWith("blob:") || soundId.startsWith("http")) {
+    if (soundId.startsWith("custom:")) {
+      const stored = await AudioStorageService.getAudio(soundId);
+      if (stored) {
+        src = stored;
+      }
+    } else if (soundId.startsWith("data:") || soundId.startsWith("blob:") || soundId.startsWith("http")) {
       src = soundId;
     }
 
@@ -125,9 +159,8 @@ export function playNotificationTone(soundId: string = "hygiene"): void {
 
 function playSynthesizedFallback(soundId: string = "hygiene"): void {
   try {
-    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const ctx = new AudioContextClass();
+    const ctx = getSharedAudioContext();
+    if (!ctx) return;
     const now = ctx.currentTime;
 
     const playTone = (

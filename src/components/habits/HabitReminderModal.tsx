@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Habit } from "@/lib/store";
 import { useThemeStyles } from "@/lib/useThemeStyles";
+import { AudioStorageService } from "@/lib/audioStorage";
 import {
   getNotificationPermission,
   requestNotificationPermission,
@@ -72,6 +73,7 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
   );
   const [showSoundPicker, setShowSoundPicker] = useState<boolean>(false);
   const [showVibePicker, setShowVibePicker] = useState<boolean>(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const [testSent, setTestSent] = useState(false);
 
@@ -103,26 +105,41 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
 
   // پیش‌شنوایی فوری صدا
   const handlePreviewSound = (soundId: string) => {
+    setUploadError(null);
     setCustomSound(null);
     setSelectedSound(soundId);
     playNotificationTone(soundId);
   };
 
-  // آپلود فایل صوتی اختصاصی از روی گوشی یا سیستم کاربر
+  // آپلود فایل صوتی اختصاصی از روی گوشی یا سیستم کاربر و ذخیره ایمن در IndexedDB
   const handleUploadAudio = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setUploadError(null);
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 8 * 1024 * 1024) {
-      alert("حداکثر حجم مجاز فایل صوتی ۸ مگابایت است.");
+    if (file.size > 10 * 1024 * 1024) {
+      setUploadError("حداکثر حجم فایل صوتی ۱۰ مگابایت است.");
       return;
     }
     const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      setCustomSound(dataUrl);
-      playNotificationTone(dataUrl);
+    reader.onload = async () => {
+      try {
+        const dataUrl = reader.result as string;
+        const soundKey = `custom:habit_${habit.id}`;
+        await AudioStorageService.saveAudio(soundKey, dataUrl);
+        setCustomSound(soundKey);
+        playNotificationTone(soundKey);
+      } catch {
+        setUploadError("خطا در بارگذاری فایل صوتی");
+      }
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleDeleteCustomSound = async () => {
+    const soundKey = `custom:habit_${habit.id}`;
+    await AudioStorageService.deleteAudio(soundKey);
+    setCustomSound(null);
+    setUploadError(null);
   };
 
   // پیش‌شنوایی فوری ویبره
@@ -310,10 +327,17 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
                 className="rounded-xl border overflow-hidden"
                 style={{ borderColor: cardBorder, backgroundColor: "rgba(128,128,128,0.03)" }}
               >
-                <button
-                  type="button"
+                <div
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setShowSoundPicker(!showSoundPicker)}
-                  className="w-full flex items-center justify-between p-3 text-xs font-medium transition-colors hover:bg-white/5 cursor-pointer"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setShowSoundPicker(!showSoundPicker);
+                    }
+                  }}
+                  className="w-full flex items-center justify-between p-3 text-xs font-medium transition-colors hover:bg-white/5 cursor-pointer select-none"
                   style={{ color: fg }}
                 >
                   <div className="flex items-center gap-2">
@@ -340,7 +364,7 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
                     </button>
                     {showSoundPicker ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                   </div>
-                </button>
+                </div>
 
                 {showSoundPicker && (
                   <div className="p-2.5 border-t border-dashed space-y-2 max-h-64 overflow-y-auto" style={{ borderColor: cardBorder }}>
@@ -362,13 +386,19 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
                           </button>
                           <button
                             type="button"
-                            onClick={() => setCustomSound(null)}
+                            onClick={handleDeleteCustomSound}
                             className="p-1 rounded-lg hover:bg-rose-500/20 text-rose-400 cursor-pointer"
                             title="حذف و بازگشت به صداهای پیش‌فرض"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
+                      </div>
+                    )}
+
+                    {uploadError && (
+                      <div className="p-2 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs text-center font-bold">
+                        {uploadError}
                       </div>
                     )}
 

@@ -363,6 +363,9 @@ export const HabitStore = {
     const idx = habits.findIndex((h) => h.id === id);
     if (idx === -1) return null;
     habits[idx] = { ...habits[idx], ...data };
+    if (data.reminder_custom_sound === undefined && "reminder_custom_sound" in data) {
+      delete habits[idx].reminder_custom_sound;
+    }
     setStore(HABITS_KEY, habits);
     return habits[idx];
   },

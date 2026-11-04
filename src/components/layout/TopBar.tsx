@@ -4,6 +4,7 @@ import ThemeToggle from "./ThemeToggle";
 import { todayShamsi, todayShamsiShort, todayGregorianFormatted, toPersianDigits } from "@/lib/shamsi";
 import { useThemeStyles } from "@/lib/useThemeStyles";
 import { syncManager, SyncStatus, SYNC_STATUS_EVENT } from "@/lib/sync";
+import { offlineQueue, OFFLINE_QUEUE_EVENT } from "@/lib/offlineQueue";
 import { TimeCheckService, TimeCheckStatus, TIME_STATUS_EVENT } from "@/lib/timeCheck";
 import { Wifi, WifiOff, RefreshCw, Laptop, AlertTriangle, X } from "lucide-react";
 import { PWAInstallButton } from "@/components/shared/PWAInstallButton";
@@ -29,6 +30,7 @@ const VIEW_TITLES: Record<string, string> = {
 export default function TopBar({ view, menuOpen, onMenuToggle }: Props) {
   const { headerBg, fg, fgMuted, cardBorder } = useThemeStyles();
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(() => syncManager.getStatus());
+  const [queueCount, setQueueCount] = useState<number>(() => offlineQueue.getPendingCount());
   const [isRotating, setIsRotating] = useState(false);
   const [timeStatus, setTimeStatus] = useState<TimeCheckStatus>(() => TimeCheckService.getStatus());
   const [showDriftDialog, setShowDriftDialog] = useState(false);
@@ -42,11 +44,17 @@ export default function TopBar({ view, menuOpen, onMenuToggle }: Props) {
       const customEvent = e as CustomEvent<TimeCheckStatus>;
       setTimeStatus(customEvent.detail);
     };
+    const handleQueueChange = (e: Event) => {
+      const customEvent = e as CustomEvent<{ count: number }>;
+      setQueueCount(customEvent.detail?.count ?? 0);
+    };
     window.addEventListener(SYNC_STATUS_EVENT, handleStatusChange);
     window.addEventListener(TIME_STATUS_EVENT, handleTimeStatus);
+    window.addEventListener(OFFLINE_QUEUE_EVENT, handleQueueChange);
     return () => {
       window.removeEventListener(SYNC_STATUS_EVENT, handleStatusChange);
       window.removeEventListener(TIME_STATUS_EVENT, handleTimeStatus);
+      window.removeEventListener(OFFLINE_QUEUE_EVENT, handleQueueChange);
     };
   }, []);
 
@@ -141,7 +149,14 @@ export default function TopBar({ view, menuOpen, onMenuToggle }: Props) {
               <>
                 <span className="h-2 w-2 rounded-full bg-amber-500"></span>
                 <WifiOff className="h-3.5 w-3.5 text-amber-500" />
-                <span className="hidden sm:inline-block text-amber-500">آفلاین (دیتابیس محلی)</span>
+                <span className="hidden sm:inline-block text-amber-500">
+                  {queueCount > 0 ? `آفلاین (${toPersianDigits(queueCount)} در صف)` : "آفلاین (دیتابیس محلی)"}
+                </span>
+                {queueCount > 0 && (
+                  <span className="sm:hidden px-1.5 py-0.2 bg-amber-500/20 text-amber-400 rounded-full text-[9px] font-bold">
+                    {toPersianDigits(queueCount)}
+                  </span>
+                )}
               </>
             )}
 

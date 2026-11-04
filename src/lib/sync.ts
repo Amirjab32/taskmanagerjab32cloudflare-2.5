@@ -4,6 +4,7 @@
  */
 import { exportDatabase, importDatabase } from "./store";
 import { LocalSnapshotService } from "./localSnapshots";
+import { offlineQueue } from "./offlineQueue";
 
 /// کلید وضعیت تغییرات ارسال‌نشده محلی در حافظه پایدار مرورگر
 const HAS_UNPUSHED_CHANGES_KEY = "focusflow_has_unpushed_changes";
@@ -116,6 +117,7 @@ class SyncManager {
       window.addEventListener("focusflow-data-changed", () => {
         this.hasUnsavedLocalChanges = true;
         localStorage.setItem(HAS_UNPUSHED_CHANGES_KEY, "true");
+        offlineQueue.enqueue("DATA_UPDATE", "تغییرات دیتابیس محلی").catch(() => {});
         this.setStatus("syncing");
         this.schedulePush();
         LocalSnapshotService.notifyDataChanged();
@@ -125,6 +127,7 @@ class SyncManager {
       window.addEventListener("focusflow-planner-timer-change", () => {
         this.hasUnsavedLocalChanges = true;
         localStorage.setItem(HAS_UNPUSHED_CHANGES_KEY, "true");
+        offlineQueue.enqueue("TIMER_UPDATE", "تغییر وضعیت تایمر پلنر").catch(() => {});
         this.triggerImmediatePush();
         LocalSnapshotService.notifyDataChanged();
       });
@@ -132,6 +135,7 @@ class SyncManager {
       // هماهنگ‌سازی هنگام فعال شدن تب یا اتصال مجدد اینترنت / وی‌پی‌ان
       // با اولویت دیتای دیوایس (Device Precedence)
       const handleReconnection = () => {
+        offlineQueue.processQueue().catch(() => {});
         this.reconcileWithServer();
       };
 
@@ -227,6 +231,7 @@ class SyncManager {
           localStorage.setItem("focusflow_last_synced_mtime", this.lastSyncedMtime.toString());
           this.hasUnsavedLocalChanges = false;
           localStorage.removeItem(HAS_UNPUSHED_CHANGES_KEY);
+          offlineQueue.clearQueue().catch(() => {});
           this.setStatus("connected");
           return true;
         }
@@ -327,6 +332,7 @@ class SyncManager {
     this.lastSyncedMtime = 0;
     this.hasUnsavedLocalChanges = false;
     localStorage.removeItem(HAS_UNPUSHED_CHANGES_KEY);
+    offlineQueue.clearQueue().catch(() => {});
 
     // ۳. ارسال سریع یک درخواست ریست به سرور تا فایل دیتابیس هم خالی شود
     try {
