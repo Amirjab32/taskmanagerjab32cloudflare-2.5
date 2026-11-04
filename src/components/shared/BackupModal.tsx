@@ -22,10 +22,14 @@ import {
   FileText,
   FolderArchive,
   File,
-  Trash2
+  Trash2,
+  HardDrive
 } from "lucide-react";
 import { useThemeStyles } from "@/lib/useThemeStyles";
 import { exportDatabase, importDatabase, BACKUP_KEYS } from "@/lib/store";
+import { LocalSnapshotService, LocalSnapshot } from "@/lib/localSnapshots";
+import { syncManager } from "@/lib/sync";
+import { toPersianDigits } from "@/lib/shamsi";
 
 interface Props {
   isOpen: boolean;
@@ -59,12 +63,55 @@ export default function BackupModal({ isOpen, onClose, onSuccess }: Props) {
   const [isLoadingAuto, setIsLoadingAuto] = useState(false);
   const [restoringSlot, setRestoringSlot] = useState<{ date: string; slot: number } | null>(null);
 
+  // Local Snapshots States
+  const [localSnapshots, setLocalSnapshots] = useState<LocalSnapshot[]>([]);
+  const [isCreatingSnapshot, setIsCreatingSnapshot] = useState(false);
+
   const isHost = typeof window !== "undefined" && 
     (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+
+  const loadLocalSnapshots = async () => {
+    const list = await LocalSnapshotService.listSnapshots();
+    setLocalSnapshots(list);
+  };
+
+  const handleCreateSnapshotNow = async () => {
+    setIsCreatingSnapshot(true);
+    const snap = await LocalSnapshotService.createSnapshot(true);
+    if (snap) {
+      setSuccessMsg("بکاپ خودکار محلی با موفقیت ثبت شد.");
+      await loadLocalSnapshots();
+    } else {
+      setError("خطا در ایجاد بکاپ محلی.");
+    }
+    setIsCreatingSnapshot(false);
+  };
+
+  const handleRestoreLocalSnapshot = async (snapshot: LocalSnapshot) => {
+    if (!window.confirm(`آیا از بازگردانی اطلاعات به بکاپ تاریخ ${snapshot.dateShamsi} ساعت ${snapshot.timeShamsi} اطمینان دارید؟ تمام داده‌های فعلی با این نسخه بازنویسی خواهند شد.`)) {
+      return;
+    }
+    const ok = await syncManager.applyManualDatabaseOverride(JSON.stringify(snapshot.data));
+    if (ok) {
+      setSuccessMsg("اطلاعات از بکاپ محلی با موفقیت بازیابی شد و جایگزین داده‌های فعلی گردید.");
+      await loadLocalSnapshots();
+      setTimeout(() => {
+        onSuccess();
+      }, 700);
+    } else {
+      setError("خطا در بازیابی بکاپ محلی.");
+    }
+  };
+
+  const handleDeleteLocalSnapshot = async (id: string) => {
+    await LocalSnapshotService.deleteSnapshot(id);
+    await loadLocalSnapshots();
+  };
 
   useEffect(() => {
     if (isOpen) {
       checkServerConnection();
+      loadLocalSnapshots();
       if (activeTab === "files") {
         fetchSharedFiles();
       } else if (activeTab === "auto") {
@@ -322,17 +369,18 @@ export default function BackupModal({ isOpen, onClose, onSuccess }: Props) {
     }
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const text = event.target?.result as string;
-        const success = importDatabase(text);
+        // اعمال قطعی و تحمیل کامل فایل به سیستم لوکال و سرور
+        const success = await syncManager.applyManualDatabaseOverride(text);
         if (success) {
-          window.dispatchEvent(new CustomEvent("focusflow-data-changed"));
-          setSuccessMsg("اطلاعات با موفقیت بازیابی شد. در حال بارگذاری مجدد...");
+          setSuccessMsg("اطلاعات فایل با موفقیت اعمال و جایگزین کل حافظه محلی شد. در حال بارگذاری مجدد...");
+          await loadLocalSnapshots();
           setTimeout(() => {
             onSuccess();
             onClose();
-          }, 1500);
+          }, 1200);
         } else {
           setError("فرمت اطلاعات داخل فایل معتبر نیست.");
         }
@@ -344,7 +392,7 @@ export default function BackupModal({ isOpen, onClose, onSuccess }: Props) {
   };
 
   // Manual Import from text paste
-  const handleImportTextSubmit = () => {
+  const handleImportTextSubmit = async () => {
     setError(null);
     setSuccessMsg(null);
     if (!importText.trim()) {
@@ -353,15 +401,16 @@ export default function BackupModal({ isOpen, onClose, onSuccess }: Props) {
     }
 
     try {
-      const success = importDatabase(importText.trim());
+      // اعمال قطعی و تحمیل کامل فایل به سیستم لوکال و سرور
+      const success = await syncManager.applyManualDatabaseOverride(importText.trim());
       if (success) {
-        window.dispatchEvent(new CustomEvent("focusflow-data-changed"));
-        setSuccessMsg("اطلاعات با موفقیت بازیابی شد. در حال بارگذاری مجدد...");
+        setSuccessMsg("کد پشتیبان با موفقیت اعمال و جایگزین کل حافظه محلی شد. در حال بارگذاری مجدد...");
         setImportText("");
+        await loadLocalSnapshots();
         setTimeout(() => {
           onSuccess();
           onClose();
-        }, 1500);
+        }, 1200);
       } else {
         setError("کد پشتیبان وارد شده معتبر نیست. لطفاً مجدداً بررسی کنید.");
       }
@@ -870,114 +919,207 @@ export default function BackupModal({ isOpen, onClose, onSuccess }: Props) {
             )}
           </div>
         ) : activeTab === "auto" ? (
-          /* AUTO BACKUPS TAB */
-          <div className="mt-5 space-y-4">
-            {/* Connection Status Panel */}
-            <div 
-              className="flex items-center justify-between p-3 rounded-2xl border text-xs"
-              style={{ borderColor: cardBorder, backgroundColor: inputBg }}
-            >
-              <div className="flex items-center gap-2">
-                <div className="relative flex h-2 w-2">
-                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                    serverStatus === "connected" ? "bg-emerald-400" : "bg-rose-400"
-                  }`}></span>
-                  <span className={`relative inline-flex rounded-full h-2 w-2 ${
-                    serverStatus === "connected" ? "bg-emerald-500" : "bg-rose-500"
-                  }`}></span>
-                </div>
-                <span className="font-bold" style={{ color: fg }}>
-                  {serverStatus === "connected" ? "اتصال به شبکه محلی برقرار است" : "عدم اتصال به سرور لپ‌تاپ"}
-                </span>
-              </div>
-              <button
-                onClick={fetchAutoBackups}
-                disabled={serverStatus !== "connected" || isLoadingAuto}
-                className="p-1 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition-colors cursor-pointer disabled:opacity-40"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${isLoadingAuto ? "animate-spin" : ""}`} />
-              </button>
-            </div>
-
-            {serverStatus !== "connected" ? (
-              <div className="p-5 rounded-2xl border border-rose-500/20 bg-rose-500/5 text-center space-y-3">
-                <AlertCircle className="h-8 w-8 text-rose-400 mx-auto" />
-                <h5 className="text-xs font-bold text-rose-400">اتصال بی‌سیم با لپ‌تاپ قطع است</h5>
-                <p className="text-[10px] leading-relaxed" style={{ color: fgMuted }}>
-                  جهت دسترسی به تاریخچه‌ی بکاپ‌های خودکار و ۳ ساعته گذشته، ابتدا باید از روشن بودن برنامه روی لپ‌تاپ و اتصال به یک شبکه مشترک وای‌فای اطمینان حاصل کنید.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between text-xs font-bold" style={{ color: fgMuted }}>
-                  <span>📅 لیست نسخه‌های پشتیبان خودکار ۱۰ روز اخیر سرور:</span>
+          /* AUTO BACKUPS TAB: LOCAL SNAPSHOTS (INDEXEDDB) + SERVER BACKUPS */
+          <div className="mt-5 space-y-6">
+            {/* ۱. بخش بکاپ‌های پایدار محلی دستگاه (کاملاً آفلاین و مستقل از اینترنت) */}
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-2" style={{ borderColor: cardBorder }}>
+                <div className="flex items-center gap-2">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+                    <HardDrive className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold" style={{ color: fg }}>پشتیبان‌گیری پایدار دستگاه (آفلاین و همیشگی)</h4>
+                    <p className="text-[10px]" style={{ color: fgMuted }}>
+                      ذخیره روی دیسک دستگاه (IndexedDB) • پایدار در حالت آفلاین، نت ملی و پس از بستن برنامه
+                    </p>
+                  </div>
                 </div>
 
-                {isLoadingAuto ? (
-                  <div className="p-8 text-center" style={{ color: fgMuted }}>
-                    <RefreshCw className="h-6 w-6 animate-spin mx-auto text-amber-500 mb-2" />
-                    <span className="text-xs font-semibold">در حال دریافت لیست بکاپ‌های خودکار...</span>
-                  </div>
-                ) : autoBackups.length === 0 ? (
-                  <div className="p-8 rounded-2xl border border-dashed text-center" style={{ borderColor: cardBorder, backgroundColor: inputBg }}>
-                    <p className="text-xs text-gray-400 font-semibold">هیچ نسخه پشتیبان خودکاری روی سرور یافت نشد.</p>
-                    <p className="text-[10px] text-gray-500 mt-1">بکاپ‌ها هر ۳ ساعت یکبار در صورت وجود اطلاعات ذخیره خواهند شد.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1 scrollbar-thin">
-                    {autoBackups.map((day) => (
-                      <div 
-                        key={day.date} 
-                        className="border rounded-2xl p-3 space-y-2.5" 
-                        style={{ borderColor: cardBorder, backgroundColor: inputBg }}
-                      >
-                        <div className="flex items-center justify-between border-b pb-1.5" style={{ borderColor: cardBorder }}>
-                          <span className="text-xs font-bold text-amber-500 font-mono">{day.date}</span>
-                          <span className="text-[10px] bg-white/5 text-gray-400 px-2 py-0.5 rounded-full font-bold">
-                            {day.slots.length} بازه زمانی فعال
-                          </span>
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <button
+                    onClick={handleCreateSnapshotNow}
+                    disabled={isCreatingSnapshot}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-emerald-500/10 hover:bg-emerald-500 hover:text-white text-emerald-400 transition-all cursor-pointer disabled:opacity-40"
+                    title="ثبت فوری نسخه از وضعیت فعلی برنامه"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${isCreatingSnapshot ? "animate-spin" : ""}`} />
+                    <span>{isCreatingSnapshot ? "در حال ثبت..." : "ثبت نسخه اکنون"}</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      LocalSnapshotService.downloadCurrentDatabase();
+                      setSuccessMsg("فایل بکاپ کامل دیتابیس دانلود شد.");
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-amber-500/10 hover:bg-amber-500 hover:text-white text-amber-400 transition-all cursor-pointer"
+                    title="دانلود فایل JSON نسخه جاری"
+                  >
+                    <Download className="h-3 w-3" />
+                    <span>دانلود فایل</span>
+                  </button>
+                </div>
+              </div>
+
+              {localSnapshots.length === 0 ? (
+                <div className="p-5 rounded-2xl border border-dashed text-center space-y-1.5" style={{ borderColor: cardBorder, backgroundColor: inputBg }}>
+                  <HardDrive className="h-6 w-6 text-gray-500 mx-auto" />
+                  <p className="text-xs text-gray-400 font-semibold">هنوز نسخه محلی ثبت نشده است.</p>
+                  <p className="text-[10px] text-gray-500">با انجام تغییرات، نسخه‌ها به صورت خودکار در حافظه پایدار دیسک ذخیره می‌شوند.</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin">
+                  {localSnapshots.map((snap) => (
+                    <div
+                      key={snap.id}
+                      className="border rounded-xl p-2.5 flex items-center justify-between gap-3 bg-black/15 hover:bg-black/25 transition-all text-right"
+                      style={{ borderColor: cardBorder }}
+                    >
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-emerald-400 font-mono">{snap.dateShamsi}</span>
+                          <span className="text-[10px] text-gray-400 font-mono">ساعت {snap.timeShamsi}</span>
                         </div>
-                        
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {day.slots.map((slot: any) => {
-                            const isRestoring = restoringSlot?.date === day.date && restoringSlot?.slot === slot.slot;
-                            return (
-                              <div 
-                                key={slot.slot} 
-                                className="border rounded-xl p-2.5 flex flex-col justify-between gap-2 bg-black/10 hover:bg-black/20 transition-all text-right"
-                                style={{ borderColor: cardBorder }}
-                              >
-                                <div>
-                                  <div className="flex items-center justify-between text-[10px] font-bold">
-                                    <span className="text-emerald-400 font-mono">بازه {slot.slot}</span>
-                                    <span style={{ color: fgMuted }}>{slot.time}</span>
-                                  </div>
-                                  <p className="text-[9px] mt-1 text-gray-400 font-mono">
-                                    حجم فایل: {(slot.size / 1024).toFixed(1)} KB
-                                  </p>
-                                </div>
-                                
-                                <button
-                                  onClick={() => handleRestoreBackup(day.date, slot.slot, slot.time)}
-                                  disabled={restoringSlot !== null}
-                                  className="w-full py-1.5 px-2.5 rounded-lg text-[9px] sm:text-[10px] font-bold bg-amber-500/10 hover:bg-amber-500 hover:text-white text-amber-400 transition-all cursor-pointer disabled:opacity-40"
-                                >
-                                  {isRestoring ? "در حال بازیابی..." : "بازیابی اطلاعات به این زمان"}
-                                </button>
-                              </div>
-                            );
-                          })}
+                        <div className="flex items-center gap-2 text-[10px] text-gray-400 truncate">
+                          <span>{toPersianDigits(snap.summary?.tasksCount ?? 0)} تسک</span>
+                          <span>•</span>
+                          <span>{toPersianDigits(snap.summary?.habitsCount ?? 0)} عادت</span>
+                          <span>•</span>
+                          <span>{toPersianDigits(snap.summary?.plannerCount ?? 0)} بازه پلنر</span>
+                          <span>•</span>
+                          <span>{toPersianDigits(snap.summary?.notesCount ?? 0)} یادداشت</span>
                         </div>
                       </div>
-                    ))}
+
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button
+                          onClick={() => handleRestoreLocalSnapshot(snap)}
+                          className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-500/10 hover:bg-emerald-500 hover:text-white text-emerald-400 transition-all cursor-pointer"
+                          title="بازیابی برنامه به این نسخه"
+                        >
+                          بازیابی
+                        </button>
+                        <button
+                          onClick={() => LocalSnapshotService.downloadSnapshotFile(snap)}
+                          className="p-1 rounded-lg hover:bg-white/10 text-gray-400 hover:text-amber-400 transition-colors cursor-pointer"
+                          title="دانلود فایل این نسخه"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteLocalSnapshot(snap.id)}
+                          className="p-1 rounded-lg hover:bg-white/10 text-gray-500 hover:text-rose-400 transition-colors cursor-pointer"
+                          title="حذف این نسخه"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ۲. بخش بکاپ‌های دوره‌ای شبکه سرور لپ‌تاپ / کلودفلر (۳ ساعته) */}
+            <div className="space-y-3 pt-3 border-t" style={{ borderColor: cardBorder }}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10 text-amber-500">
+                    <Database className="h-4 w-4" />
                   </div>
-                )}
-                
-                <p className="text-[9px] leading-relaxed text-center" style={{ color: fgMuted }}>
-                  ⚠️ توجه داشته باشید که بازگردانی بکاپ به معنی بارگذاری کل ساختار اطلاعات دیتابیس در زمان انتخابی است. با تایید شما، تمام کلاینت‌ها (گوشی‌ها) هم از این دیتابیس جدید تغذیه خواهند کرد.
-                </p>
+                  <div>
+                    <h4 className="text-xs font-bold" style={{ color: fg }}>پشتیبان‌گیری دوره‌ای سرور (۳ ساعته)</h4>
+                    <p className="text-[10px]" style={{ color: fgMuted }}>۸ بازه در شبانه‌روز با نگهداری ۱۰ روز اخیر</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/5">
+                    <span className={`h-2 w-2 rounded-full ${serverStatus === "connected" ? "bg-emerald-500" : "bg-rose-500"}`} />
+                    <span style={{ color: fgMuted }}>{serverStatus === "connected" ? "سرور متصل" : "سرور قطع"}</span>
+                  </div>
+                  <button
+                    onClick={fetchAutoBackups}
+                    disabled={serverStatus !== "connected" || isLoadingAuto}
+                    className="p-1 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition-colors cursor-pointer disabled:opacity-40"
+                    title="بروزرسانی لیست سرور"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${isLoadingAuto ? "animate-spin" : ""}`} />
+                  </button>
+                </div>
               </div>
-            )}
+
+              {serverStatus !== "connected" ? (
+                <div className="p-4 rounded-xl border border-white/5 bg-white/5 text-center space-y-1.5">
+                  <p className="text-xs font-semibold text-gray-400">سرور شبکه محلی لپ‌تاپ در حال حاضر متصل نیست.</p>
+                  <p className="text-[10px] text-gray-500">
+                    جای نگرانی نیست؛ تمام اطلاعات شما در بخش «پشتیبان‌گیری پایدار دستگاه» در بالا با امنیت کامل نگهداری می‌شوند.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {isLoadingAuto ? (
+                    <div className="p-8 text-center" style={{ color: fgMuted }}>
+                      <RefreshCw className="h-6 w-6 animate-spin mx-auto text-amber-500 mb-2" />
+                      <span className="text-xs font-semibold">در حال دریافت لیست بکاپ‌های خودکار...</span>
+                    </div>
+                  ) : autoBackups.length === 0 ? (
+                    <div className="p-6 rounded-2xl border border-dashed text-center" style={{ borderColor: cardBorder, backgroundColor: inputBg }}>
+                      <p className="text-xs text-gray-400 font-semibold">هیچ نسخه پشتیبان خودکاری روی سرور یافت نشد.</p>
+                      <p className="text-[10px] text-gray-500 mt-1">بکاپ‌ها هر ۳ ساعت یکبار در صورت وجود اطلاعات ذخیره خواهند شد.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin">
+                      {autoBackups.map((day) => (
+                        <div 
+                          key={day.date} 
+                          className="border rounded-2xl p-3 space-y-2.5" 
+                          style={{ borderColor: cardBorder, backgroundColor: inputBg }}
+                        >
+                          <div className="flex items-center justify-between border-b pb-1.5" style={{ borderColor: cardBorder }}>
+                            <span className="text-xs font-bold text-amber-500 font-mono">{day.date}</span>
+                            <span className="text-[10px] bg-white/5 text-gray-400 px-2 py-0.5 rounded-full font-bold">
+                              {day.slots.length} بازه زمانی فعال
+                            </span>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {day.slots.map((slot: any) => {
+                              const isRestoring = restoringSlot?.date === day.date && restoringSlot?.slot === slot.slot;
+                              return (
+                                <div 
+                                  key={slot.slot} 
+                                  className="border rounded-xl p-2.5 flex flex-col justify-between gap-2 bg-black/10 hover:bg-black/20 transition-all text-right"
+                                  style={{ borderColor: cardBorder }}
+                                >
+                                  <div>
+                                    <div className="flex items-center justify-between text-[10px] font-bold">
+                                      <span className="text-emerald-400 font-mono">بازه {slot.slot}</span>
+                                      <span style={{ color: fgMuted }}>{slot.time}</span>
+                                    </div>
+                                    <p className="text-[9px] mt-1 text-gray-400 font-mono">
+                                      حجم فایل: {(slot.size / 1024).toFixed(1)} KB
+                                    </p>
+                                  </div>
+                                  
+                                  <button
+                                    onClick={() => handleRestoreBackup(day.date, slot.slot, slot.time)}
+                                    disabled={restoringSlot !== null}
+                                    className="w-full py-1.5 px-2.5 rounded-lg text-[9px] sm:text-[10px] font-bold bg-amber-500/10 hover:bg-amber-500 hover:text-white text-amber-400 transition-all cursor-pointer disabled:opacity-40"
+                                  >
+                                    {isRestoring ? "در حال بازیابی..." : "بازیابی اطلاعات به این زمان"}
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           /* WIFI LOCAL SYNC TAB */

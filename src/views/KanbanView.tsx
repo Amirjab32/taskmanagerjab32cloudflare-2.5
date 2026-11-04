@@ -1542,8 +1542,9 @@ function StatsTab({ tasks, activities }: { tasks: Task[]; activities: RecurringA
   });
 
   const activityFilteredTasks = tasksInRange.filter((t) => {
+    if (!t.activity_id) return false;
     if (selectedActivityIds.length === 0) return true;
-    return selectedActivityIds.includes(t.activity_id ?? "");
+    return selectedActivityIds.includes(t.activity_id);
   });
 
   const filteredTasks = activityFilteredTasks.filter((t) => {
@@ -1556,6 +1557,7 @@ function StatsTab({ tasks, activities }: { tasks: Task[]; activities: RecurringA
 
   const timelineEntriesInRange = rangeFrom && rangeTo
     ? TimelineEntryStore.listByRange(rangeFrom, rangeTo).filter((e) => {
+        if (!e.activity_id) return false;
         if (selectedActivityIds.length === 0) return true;
         return selectedActivityIds.includes(e.activity_id);
       })
@@ -1563,12 +1565,13 @@ function StatsTab({ tasks, activities }: { tasks: Task[]; activities: RecurringA
 
   const secsByActivityFromTasks: Record<string, number> = {};
   filteredTasks.forEach((t) => {
-    const actId = t.activity_id ?? "__none__";
-    secsByActivityFromTasks[actId] = (secsByActivityFromTasks[actId] || 0) + (t.elapsed_seconds || 0);
+    if (!t.activity_id) return;
+    secsByActivityFromTasks[t.activity_id] = (secsByActivityFromTasks[t.activity_id] || 0) + (t.elapsed_seconds || 0);
   });
 
   const secsByActivityFromTimeline: Record<string, number> = {};
   timelineEntriesInRange.forEach((e) => {
+    if (!e.activity_id) return;
     const secs = e.duration_seconds ?? 0;
     secsByActivityFromTimeline[e.activity_id] = (secsByActivityFromTimeline[e.activity_id] || 0) + secs;
   });
@@ -1602,27 +1605,22 @@ function StatsTab({ tasks, activities }: { tasks: Task[]; activities: RecurringA
   const pieData: { name: string; value: number; color: string }[] = [];
   Object.entries(secsByActivity).forEach(([actId, secs]) => {
     if (secs <= 0) return;
-    if (actId === "__none__") {
-      pieData.push({ name: "بدون اکتیویتی", value: secs, color: "#94a3b8" });
-    } else {
-      const act = activities.find((a) => a.id === actId);
-      if (act) pieData.push({ name: act.name, value: secs, color: act.color });
-    }
+    const act = activities.find((a) => a.id === actId);
+    if (act) pieData.push({ name: act.name, value: secs, color: act.color });
   });
 
   const dateMap = new Map<string, Record<string, number>>();
   filteredTasks.forEach((t) => {
     const d = t.scheduled_date;
-    if (!d) return;
+    if (!d || !t.activity_id) return;
     if (!dateMap.has(d)) dateMap.set(d, {});
     const m = dateMap.get(d)!;
-    const actId = t.activity_id || "__none__";
-    m[actId] = (m[actId] || 0) + (t.elapsed_seconds || 0);
+    m[t.activity_id] = (m[t.activity_id] || 0) + (t.elapsed_seconds || 0);
   });
 
   timelineEntriesInRange.forEach((e) => {
     const d = e.date;
-    if (!d) return;
+    if (!d || !e.activity_id) return;
     if (!dateMap.has(d)) dateMap.set(d, {});
     const m = dateMap.get(d)!;
     m[e.activity_id] = (m[e.activity_id] || 0) + (e.duration_seconds || 0);
@@ -1639,10 +1637,6 @@ function StatsTab({ tasks, activities }: { tasks: Task[]; activities: RecurringA
         entry[act.name] = Math.round((m[act.id] || 0) / 60);
       }
     });
-    
-    if (selectedActivityIds.length === 0 || selectedActivityIds.includes("__none__")) {
-      entry["بدون اکتیویتی"] = Math.round((m["__none__"] || 0) / 60);
-    }
     
     entry.total = Math.round(Object.values(m).reduce((a, b) => a + b, 0) / 60);
     return entry;
@@ -1823,8 +1817,27 @@ function StatsTab({ tasks, activities }: { tasks: Task[]; activities: RecurringA
                       <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={2} dataKey="value">
                         {pieData.map((d, i) => <Cell key={i} fill={d.color} />)}
                       </Pie>
-                      <RechartTooltip formatter={(value) => [formatDuration(Number(value))]}
-                        contentStyle={{ backgroundColor: bg, border: `1px solid ${cardBorder}`, borderRadius: 12, direction: "rtl", color: fg }} />
+                      <RechartTooltip 
+                        content={({ active, payload }) => {
+                          if (active && payload && payload.length) {
+                            const item = payload[0];
+                            const color = item.payload?.color || "#818cf8";
+                            return (
+                              <div 
+                                className="rounded-xl px-3 py-2 text-xs shadow-xl border flex items-center gap-2.5"
+                                style={{ backgroundColor: bg, borderColor: cardBorder, color: fg, direction: "rtl" }}
+                              >
+                                <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                                <span className="font-bold">{item.name}:</span>
+                                <span className="font-mono font-bold text-indigo-400">
+                                  {formatDuration(Number(item.value))}
+                                </span>
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
+                      />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>

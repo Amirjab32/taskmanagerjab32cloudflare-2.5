@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -5,9 +6,39 @@ import os from "os";
 import multer from "multer";
 import { createServer as createViteServer } from "vite";
 
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception:", err);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled Rejection:", reason);
+});
+
+function getPort(): number {
+  const portIndex = process.argv.indexOf("--port");
+  if (portIndex !== -1 && process.argv[portIndex + 1]) {
+    const parsed = parseInt(process.argv[portIndex + 1], 10);
+    if (!isNaN(parsed)) return parsed;
+  }
+  if (process.env.PORT) {
+    const parsed = parseInt(process.env.PORT, 10);
+    if (!isNaN(parsed)) return parsed;
+  }
+  return 3000;
+}
+
+function getHost(): string {
+  const hostIndex = process.argv.indexOf("--host");
+  if (hostIndex !== -1 && process.argv[hostIndex + 1]) {
+    return process.argv[hostIndex + 1];
+  }
+  return "0.0.0.0";
+}
+
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = getPort();
+  const HOST = getHost();
   
   // تنظیم پوشه ذخیره‌سازی اطلاعات
   const SAVE_DIR = path.join(process.cwd(), "save");
@@ -537,6 +568,7 @@ async function startServer() {
     }
   });
 
+
   // سرو صریح فایل‌های عمومی و PWA (آیکون‌ها، مانیفست و سرویس‌ورکر)
   app.use(express.static(path.join(process.cwd(), "public")));
 
@@ -557,7 +589,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  app.listen(PORT, HOST, () => {
     // پیدا کردن آی‌پی‌های شبکه محلی برای نمایش لینک‌های کلیک‌شدنی
     const networkInterfaces = os.networkInterfaces();
     const networkLinks: string[] = [];
@@ -591,4 +623,6 @@ async function startServer() {
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error("Critical error starting server:", err);
+});

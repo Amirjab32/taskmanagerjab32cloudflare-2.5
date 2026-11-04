@@ -17,6 +17,9 @@ import MotivationView from "@/views/MotivationView";
 import GoingUpView from "@/views/GoingUpView";
 import PlannerView from "@/views/PlannerView";
 import PlannerFloatingTimer from "@/components/planner/PlannerFloatingTimer";
+import PrayerTimelineBar from "@/components/prayer/PrayerTimelineBar";
+import { TimeCheckService } from "@/lib/timeCheck";
+import { startReminderScheduler, runActiveRemindersCheck } from "@/lib/notifications";
 import IntroStressOverlay from "@/components/shared/IntroStressOverlay";
 import BackupModal from "@/components/shared/BackupModal";
 import DeleteConfirmationModal from "@/components/shared/DeleteConfirmationModal";
@@ -50,6 +53,17 @@ function AppContent() {
   const [loading, setLoading] = useState(false);
   const [showIntro, setShowIntro] = useState(false);
 
+  useEffect(() => {
+    const handleNavigate = (e: Event) => {
+      const customEvent = e as CustomEvent<{ view: string }>;
+      if (customEvent.detail?.view) {
+        setView(customEvent.detail.view as any);
+      }
+    };
+    window.addEventListener("navigate-view", handleNavigate as any);
+    return () => window.removeEventListener("navigate-view", handleNavigate as any);
+  }, []);
+
   // Check 3-hour limit for Intro Overlay with high robustness
   const checkIntro = useCallback(() => {
     try {
@@ -79,11 +93,16 @@ function AppContent() {
   useEffect(() => {
     // Check on mount
     checkIntro();
+    TimeCheckService.init();
+
+    // راه‌اندازی بررسی مستمر یادآورهای عادت‌ها و تسک‌ها
+    const stopReminders = startReminderScheduler();
 
     // Check when window gets focus or page visibility changes (especially for suspended mobile tabs)
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         checkIntro();
+        runActiveRemindersCheck();
       }
     };
 
@@ -91,6 +110,7 @@ function AppContent() {
     window.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
+      stopReminders();
       window.removeEventListener("focus", checkIntro);
       window.removeEventListener("visibilitychange", handleVisibilityChange);
     };
@@ -286,6 +306,11 @@ function AppContent() {
     });
   }, [habits]);
 
+  const updateHabit = useCallback((id: string, data: Partial<Habit>) => {
+    const updated = HabitStore.update(id, data);
+    if (updated) setHabits(HabitStore.list());
+  }, []);
+
   const createTopic = useCallback(
     (data: { title: string; description?: string; total_stages?: number }) => {
       const today = getGregorianToday();
@@ -377,7 +402,15 @@ function AppContent() {
 
   return (
     <div dir="rtl" className="min-h-screen flex flex-col font-sans transition-colors duration-300" style={{ backgroundColor: bg, color: fg }}>
-      <TopBar view={view} menuOpen={menuOpen} onMenuToggle={() => setMenuOpen((o) => !o)} />
+      {/* نوار بالایی و تایم‌لاین نماز به صورت چسبان در بالای صفحه */}
+      <div className="sticky top-0 z-30 w-full">
+        <TopBar 
+          view={view} 
+          menuOpen={menuOpen} 
+          onMenuToggle={() => setMenuOpen((o) => !o)} 
+        />
+        <PrayerTimelineBar />
+      </div>
       <PlannerFloatingTimer />
       <Sidebar 
         open={menuOpen} 
@@ -399,7 +432,7 @@ function AppContent() {
               <PlannerView />
             )}
             {view === "habits" && (
-              <HabitTrackerView habits={habits} onAdd={createHabit} onToggle={toggleHabit} onDelete={deleteHabit} />
+              <HabitTrackerView habits={habits} onAdd={createHabit} onToggle={toggleHabit} onDelete={deleteHabit} onUpdate={updateHabit} />
             )}
             {view === "going_up" && (
               <GoingUpView />
@@ -421,7 +454,7 @@ function AppContent() {
       <footer className="mt-auto py-4 text-center text-xs select-none" style={{ color: fgMuted }}>
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border text-[11px]" style={{ borderColor: cardBorder }}>
           <span>نسخه</span>
-          <span className="font-semibold">۲.۴</span>
+          <span className="font-semibold">۲.۱۶</span>
         </div>
       </footer>
 
@@ -456,6 +489,7 @@ function AppContent() {
           <IntroStressOverlay onClose={() => setShowIntro(false)} />
         )}
       </AnimatePresence>
+
     </div>
   );
 }

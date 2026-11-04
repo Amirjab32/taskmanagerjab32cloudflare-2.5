@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Trash2, Check, Flame, Folder, FolderPlus, ChevronDown, ChevronUp, GripVertical, Settings } from "lucide-react";
+import { Plus, Trash2, Check, Flame, Folder, FolderPlus, ChevronDown, ChevronUp, GripVertical, Settings, Bell } from "lucide-react";
 import { Habit, HabitGroup, HabitGroupStore, HabitStore, confirmAndDelete } from "@/lib/store";
 import { getGregorianToday, addDays, toShamsiShort, toPersianDigits } from "@/lib/shamsi";
 import HabitMonthModal from "@/components/habits/HabitMonthModal";
+import HabitReminderModal from "@/components/habits/HabitReminderModal";
 import { useThemeStyles } from "@/lib/useThemeStyles";
 
 interface Props {
@@ -11,6 +12,7 @@ interface Props {
   onAdd: (data: { name: string; color: string }) => void;
   onToggle: (habit: Habit, date?: string, force?: boolean) => void;
   onDelete: (id: string) => void;
+  onUpdate?: (id: string, data: Partial<Habit>) => void;
 }
 
 const COLORS = ["#6366f1", "#ec4899", "#10b981", "#f59e0b", "#06b6d4", "#ef4444"];
@@ -25,13 +27,15 @@ function computeStreak(dates: string[]): number {
   return streak;
 }
 
-export default function HabitTrackerView({ habits, onAdd, onToggle, onDelete }: Props) {
+export default function HabitTrackerView({ habits, onAdd, onToggle, onDelete, onUpdate }: Props) {
   const { fg, fgMuted, bg, cardBg, cardBorder } = useThemeStyles();
   const [newName, setNewName] = useState("");
   const [selectedColor, setSelectedColor] = useState(COLORS[0]);
   const [showForm, setShowForm] = useState(false);
   const [modalHabitId, setModalHabitId] = useState<string | null>(null);
   const modalHabit = habits.find((h) => h.id === modalHabitId) || null;
+  const [reminderHabitId, setReminderHabitId] = useState<string | null>(null);
+  const reminderHabit = habits.find((h) => h.id === reminderHabitId) || null;
   const today = getGregorianToday();
   const last7 = Array.from({ length: 7 }, (_, i) => addDays(today, -(6 - i)));
 
@@ -219,6 +223,15 @@ export default function HabitTrackerView({ habits, onAdd, onToggle, onDelete }: 
       ...prev,
       [groupId]: forceState !== undefined ? forceState : !prev[groupId],
     }));
+  };
+
+  const handleSaveReminder = (updated: Partial<Habit>) => {
+    if (!reminderHabitId) return;
+    if (onUpdate) {
+      onUpdate(reminderHabitId, updated);
+    } else {
+      HabitStore.update(reminderHabitId, updated);
+    }
   };
 
   const defaultHabit = habits.find((h) => h.id === "system-habit-stay-in-study");
@@ -694,18 +707,33 @@ export default function HabitTrackerView({ habits, onAdd, onToggle, onDelete }: 
                                       </motion.span>
                                     )}
                                   </div>
-                                  {!habit.is_pinned ? (
-                                    <button onClick={() => onDelete(habit.id)}
-                                      className="flex h-7 w-7 items-center justify-center rounded-lg transition-all hover:bg-rose-500/15 cursor-pointer" style={{ color: fgMuted }}
-                                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "#f87171"; }}
-                                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = fgMuted; }}>
-                                      <Trash2 className="h-4 w-4" />
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => setReminderHabitId(habit.id)}
+                                      title={habit.reminder_enabled ? `یادآور فعال: ساعت ${toPersianDigits(habit.reminder_time || "")}` : "تنظیم اعلان و یادآور"}
+                                      className={`flex h-7 w-7 items-center justify-center rounded-lg transition-all cursor-pointer ${
+                                        habit.reminder_enabled 
+                                          ? "bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25" 
+                                          : "hover:bg-white/10 opacity-60 hover:opacity-100"
+                                      }`}
+                                      style={{ color: habit.reminder_enabled ? "#818cf8" : fgMuted }}
+                                    >
+                                      <Bell className={`h-4 w-4 ${habit.reminder_enabled ? "fill-indigo-400/20" : ""}`} />
                                     </button>
-                                  ) : (
-                                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400">
-                                      ثبت خودکار سیستم
-                                    </span>
-                                  )}
+                                    {!habit.is_pinned ? (
+                                      <button onClick={() => onDelete(habit.id)}
+                                        className="flex h-7 w-7 items-center justify-center rounded-lg transition-all hover:bg-rose-500/15 cursor-pointer" style={{ color: fgMuted }}
+                                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "#f87171"; }}
+                                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = fgMuted; }}>
+                                        <Trash2 className="h-4 w-4" />
+                                      </button>
+                                    ) : (
+                                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400">
+                                        ثبت خودکار سیستم
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                                 <div className="flex gap-1.5">
                                   {last7.map((dateStr) => {
@@ -811,18 +839,33 @@ export default function HabitTrackerView({ habits, onAdd, onToggle, onDelete }: 
                           </motion.span>
                         )}
                       </div>
-                      {!habit.is_pinned ? (
-                        <button onClick={() => onDelete(habit.id)}
-                          className="flex h-7 w-7 items-center justify-center rounded-lg transition-all hover:bg-rose-500/15 cursor-pointer" style={{ color: fgMuted }}
-                          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "#f87171"; }}
-                          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = fgMuted; }}>
-                          <Trash2 className="h-4 w-4" />
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setReminderHabitId(habit.id)}
+                          title={habit.reminder_enabled ? `یادآور فعال: ساعت ${toPersianDigits(habit.reminder_time || "")}` : "تنظیم اعلان و یادآور"}
+                          className={`flex h-7 w-7 items-center justify-center rounded-lg transition-all cursor-pointer ${
+                            habit.reminder_enabled 
+                              ? "bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25" 
+                              : "hover:bg-white/10 opacity-60 hover:opacity-100"
+                          }`}
+                          style={{ color: habit.reminder_enabled ? "#818cf8" : fgMuted }}
+                        >
+                          <Bell className={`h-4 w-4 ${habit.reminder_enabled ? "fill-indigo-400/20" : ""}`} />
                         </button>
-                      ) : (
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400">
-                          ثبت خودکار سیستم
-                        </span>
-                      )}
+                        {!habit.is_pinned ? (
+                          <button onClick={() => onDelete(habit.id)}
+                            className="flex h-7 w-7 items-center justify-center rounded-lg transition-all hover:bg-rose-500/15 cursor-pointer" style={{ color: fgMuted }}
+                            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "#f87171"; }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = fgMuted; }}>
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        ) : (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400">
+                            ثبت خودکار سیستم
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex gap-1.5">
                       {last7.map((dateStr) => {
@@ -863,6 +906,13 @@ export default function HabitTrackerView({ habits, onAdd, onToggle, onDelete }: 
             onClose={() => setModalHabitId(null)}
             onToggleDate={(_habitId, date) => handleToggleClick(modalHabit, date)}
             isCorrectionMode={isCorrectionMode}
+          />
+        )}
+        {reminderHabit && (
+          <HabitReminderModal
+            habit={reminderHabit}
+            onClose={() => setReminderHabitId(null)}
+            onSave={handleSaveReminder}
           />
         )}
       </AnimatePresence>

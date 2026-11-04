@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import HamburgerButton from "./HamburgerButton";
 import ThemeToggle from "./ThemeToggle";
-import { todayShamsi, todayShamsiShort, todayGregorianFormatted } from "@/lib/shamsi";
+import { todayShamsi, todayShamsiShort, todayGregorianFormatted, toPersianDigits } from "@/lib/shamsi";
 import { useThemeStyles } from "@/lib/useThemeStyles";
 import { syncManager, SyncStatus, SYNC_STATUS_EVENT } from "@/lib/sync";
-import { Wifi, WifiOff, RefreshCw, Laptop } from "lucide-react";
+import { TimeCheckService, TimeCheckStatus, TIME_STATUS_EVENT } from "@/lib/timeCheck";
+import { Wifi, WifiOff, RefreshCw, Laptop, AlertTriangle, X } from "lucide-react";
 import { PWAInstallButton } from "@/components/shared/PWAInstallButton";
 
 interface Props {
@@ -16,9 +17,12 @@ interface Props {
 const VIEW_TITLES: Record<string, string> = {
   tasks: "مدیریت تسک",
   kanban: "کانبان",
+  planner: "پلنر",
   habits: "ردیاب عادت",
+  going_up: "بالا رفتن",
   srs: "مرور فاصله‌دار",
   quiz: "ردیاب تست",
+  motivation: "انگیزه و اهداف",
   notes: "دفترچه یادداشت",
 };
 
@@ -26,14 +30,24 @@ export default function TopBar({ view, menuOpen, onMenuToggle }: Props) {
   const { headerBg, fg, fgMuted, cardBorder } = useThemeStyles();
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(() => syncManager.getStatus());
   const [isRotating, setIsRotating] = useState(false);
+  const [timeStatus, setTimeStatus] = useState<TimeCheckStatus>(() => TimeCheckService.getStatus());
+  const [showDriftDialog, setShowDriftDialog] = useState(false);
 
   useEffect(() => {
     const handleStatusChange = (e: Event) => {
       const customEvent = e as CustomEvent<SyncStatus>;
       setSyncStatus(customEvent.detail);
     };
+    const handleTimeStatus = (e: Event) => {
+      const customEvent = e as CustomEvent<TimeCheckStatus>;
+      setTimeStatus(customEvent.detail);
+    };
     window.addEventListener(SYNC_STATUS_EVENT, handleStatusChange);
-    return () => window.removeEventListener(SYNC_STATUS_EVENT, handleStatusChange);
+    window.addEventListener(TIME_STATUS_EVENT, handleTimeStatus);
+    return () => {
+      window.removeEventListener(SYNC_STATUS_EVENT, handleStatusChange);
+      window.removeEventListener(TIME_STATUS_EVENT, handleTimeStatus);
+    };
   }, []);
 
   const handleManualSync = async () => {
@@ -44,7 +58,7 @@ export default function TopBar({ view, menuOpen, onMenuToggle }: Props) {
 
   return (
     <header
-      className="sticky top-0 z-30 w-full backdrop-blur-xl transition-colors duration-300"
+      className="w-full backdrop-blur-xl transition-colors duration-300"
       style={{ backgroundColor: headerBg, borderBottom: `1px solid ${cardBorder}` }}
     >
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
@@ -72,6 +86,19 @@ export default function TopBar({ view, menuOpen, onMenuToggle }: Props) {
               {todayGregorianFormatted()}
             </span>
           </div>
+
+          {/* نشانگر خطای ساعت سیستم در صورت عدم تطابق با ساعت جهانی اینترنت */}
+          {timeStatus.hasDrift && (
+            <button
+              type="button"
+              onClick={() => setShowDriftDialog(true)}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-400 text-[10px] font-bold cursor-pointer transition-all hover:bg-rose-500/25 animate-pulse"
+              title={`هشدار: ساعت سیستم شما حدود ${toPersianDigits(Math.abs(timeStatus.driftMinutes))} دقیقه اختلاف دارد`}
+            >
+              <AlertTriangle className="h-3 w-3 text-rose-400 flex-shrink-0" />
+              <span>خطای ساعت ({toPersianDigits(Math.abs(timeStatus.driftMinutes))}د)</span>
+            </button>
+          )}
         </div>
         
         {/* عنوان بخش جاری */}
@@ -81,6 +108,7 @@ export default function TopBar({ view, menuOpen, onMenuToggle }: Props) {
 
         {/* بخش هماهنگ‌سازی Wi-Fi و تم دکمه‌ها */}
         <div className="flex items-center gap-2 sm:gap-3">
+
           {/* دکمه نصب PWA */}
           <PWAInstallButton />
 
@@ -131,6 +159,62 @@ export default function TopBar({ view, menuOpen, onMenuToggle }: Props) {
           <ThemeToggle />
         </div>
       </div>
+
+      {/* مودال راهنمای تنظیم ساعت در صورت خطای ساعت سیستم */}
+      {showDriftDialog && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => setShowDriftDialog(false)}
+        >
+          <div 
+            className="w-full max-w-sm p-4 rounded-2xl border space-y-3 bg-[#141416] text-right shadow-2xl"
+            style={{ borderColor: cardBorder }}
+            onClick={(e) => e.stopPropagation()}
+            dir="rtl"
+          >
+            <div className="flex items-center justify-between border-b pb-2" style={{ borderColor: cardBorder }}>
+              <div className="flex items-center gap-2 text-rose-400 font-bold text-xs">
+                <AlertTriangle className="h-4 w-4" />
+                <span>عدم تطابق ساعت دستگاه با ساعت رسمی</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDriftDialog(false)}
+                className="p-1 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs space-y-1.5 leading-relaxed text-zinc-300">
+              <p>
+                ساعت گوشی یا لپ‌تاپ شما حدود <span className="font-bold text-rose-400 font-mono">{toPersianDigits(Math.abs(timeStatus.driftMinutes))} دقیقه</span> {timeStatus.driftMinutes > 0 ? "جلوتر" : "عقب‌تر"} از ساعت رسمی اینترنت است.
+              </p>
+              <p className="text-[11px] text-zinc-400">
+                این اختلاف می‌تواند باعث شود اوقات شرعی، تایمرها و نشانگر زمان واقعی با خطای زمانی نمایش داده شوند.
+              </p>
+            </div>
+
+            <div className="space-y-1 text-[11px] text-zinc-300 leading-relaxed">
+              <span className="font-bold text-white block">روش رفع مشکل:</span>
+              <p className="text-zinc-400">
+                وارد بخش تنظیمات ساعت دستگاه خود شوید و گزینه <b>تنظیم خودکار ساعت شبکه (Automatic Date & Time)</b> را روشن کنید تا ساعت شما به زمان دقیق کشور هماهنگ شود.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setShowDriftDialog(false);
+                TimeCheckService.checkTimeDrift().catch(() => {});
+              }}
+              className="w-full py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs transition-colors cursor-pointer"
+            >
+              متوجه شدم • بررسی مجدد
+            </button>
+          </div>
+        </div>
+      )}
     </header>
   );
 }

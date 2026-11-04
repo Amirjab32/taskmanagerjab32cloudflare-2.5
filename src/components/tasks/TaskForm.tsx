@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from "react";
 import { Plus, X, Star, Hash, Tag, ChevronDown, MessageSquare, Trash2 } from "lucide-react";
 import {
   getGregorianToday,
-  getTodayJalali,
   gregorianToJalali,
   toPersianDigits,
   toShamsiShort,
@@ -173,15 +172,11 @@ export default function TaskForm({ onAdd, activities }: Props) {
     });
     setTitle("");
     setPriority("medium");
-    setSelectedDate(getGregorianToday());
     setComment("");
     setTags([]);
     setTagInput("");
     setSelectedActivityId(null);
     setShowExtra(false);
-    const tj = getTodayJalali();
-    setCalJy(tj[0]);
-    setCalJm(tj[1]);
   };
 
   return (

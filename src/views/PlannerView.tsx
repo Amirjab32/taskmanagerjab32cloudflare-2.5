@@ -23,7 +23,8 @@ import {
   Play,
   Square,
   Link2,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Activity
 } from "lucide-react";
 import { useThemeStyles } from "@/lib/useThemeStyles";
 import { 
@@ -33,7 +34,9 @@ import {
   PlannerPresetStore, 
   RecurringActivity, 
   RecurringActivityStore,
-  TaskStore
+  TaskStore,
+  Task,
+  TimelineEntryStore
 } from "@/lib/store";
 import { PlannerTimerService, ActivePlannerTimer } from "@/lib/plannerTimer";
 import PlannerLinkModal from "@/components/planner/PlannerLinkModal";
@@ -55,7 +58,10 @@ import {
   CartesianGrid,
   Legend,
   LineChart,
-  Line
+  Line,
+  PieChart,
+  Pie,
+  Cell
 } from "recharts";
 
 // مبدل جامع تمام ارقام فارسی و عربی به انگلیسی برای پردازش دقیق
@@ -539,63 +545,162 @@ export default function PlannerView() {
     return { activity: null, tagText: subjectText };
   };
 
+  // فوکوس دقیق و انتخاب متن هر سلول جدول برنامه‌ریزی
+  const focusCell = useCallback((targetRow: number, targetCol: number) => {
+    if (targetRow < 0 || targetRow >= entries.length) return;
+    const clampedCol = Math.max(0, Math.min(5, targetCol));
+
+    if (clampedCol === 5) {
+      const entry = entries[targetRow];
+      if (entry) {
+        setFocusedSubjectId(entry.id);
+        setActiveSubjectDropdown(entry.id);
+        setSelectedActivityForTags(null);
+      }
+      setTimeout(() => {
+        const input = document.querySelector<HTMLInputElement>(
+          `input[data-row="${targetRow}"][data-col="5"]`
+        );
+        if (input) {
+          input.focus();
+          input.select();
+        }
+      }, 20);
+    } else {
+      setFocusedSubjectId(null);
+      setActiveSubjectDropdown(null);
+      setSelectedActivityForTags(null);
+
+      const input = document.querySelector<HTMLInputElement>(
+        `[data-row="${targetRow}"][data-col="${clampedCol}"]`
+      );
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    }
+  }, [entries]);
+
   // فوکوس خودکار روی سطر تازه ایجاد شده
   useEffect(() => {
     if (pendingFocusRef.current) {
       const { rowIndex, colIndex } = pendingFocusRef.current;
-      const targetInput = document.querySelector<HTMLInputElement>(
-        `[data-row="${rowIndex}"][data-col="${colIndex}"]`
-      );
-      if (targetInput) {
-        targetInput.focus();
-        targetInput.select();
-      }
+      focusCell(rowIndex, colIndex);
       pendingFocusRef.current = null;
     }
-  }, [entries]);
+  }, [entries, focusCell]);
 
-  // حرکت بین خانه‌های جدول برنامه‌ریزی با کلیدهای جهت‌نما + دکمه Control
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, rowIndex: number, colIndex: number) => {
-    // اگر دکمه اینتر زده شد و روی فیلد سابجکت (ستون ۵) بودیم، دراپ‌داون بسته شده و از فوکوس خارج شود
-    if (e.key === "Enter" && colIndex === 5) {
-      e.preventDefault();
-      setActiveSubjectDropdown(null);
-      setSelectedActivityForTags(null);
-      e.currentTarget.blur();
+  // حرکت سریع بین تمام خانه‌های جدول برنامه‌ریزی با کلیدهای جهت‌نما، اینتر و تب
+  const handleKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement | HTMLDivElement>, 
+    rowIndex: number, 
+    colIndex: number
+  ) => {
+    // جلوگیری از ناوبری هنگام انتخاب متن با شیفت
+    if (e.shiftKey && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
       return;
     }
 
-    if (e.ctrlKey && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+    if (e.key === "Escape") {
+      setActiveSubjectDropdown(null);
+      setSelectedActivityForTags(null);
+      setFocusedSubjectId(null);
+      return;
+    }
+
+    // کلید اینتر: حرکت به سطر بعد در همان ستون (مشابه اکسل)، یا ساخت سطر جدید در صورت رسیدن به انتهای جدول
+    if (e.key === "Enter") {
       e.preventDefault();
-      let targetRow = rowIndex;
-      let targetCol = colIndex;
+      if (colIndex === 5) {
+        setActiveSubjectDropdown(null);
+        setSelectedActivityForTags(null);
+      }
+      if (rowIndex === entries.length - 1) {
+        pendingFocusRef.current = { rowIndex: rowIndex + 1, colIndex };
+        handleAddRow();
+      } else {
+        focusCell(rowIndex + 1, colIndex);
+      }
+      return;
+    }
 
-      if (e.key === "ArrowUp") {
-        targetRow = rowIndex - 1;
-      } else if (e.key === "ArrowDown") {
-        if (rowIndex === entries.length - 1) {
-          // اگر روی آخرین سطر هستیم و دکمه پایین را همراه با کنترل زدیم، سطر جدید ایجاد شود
-          pendingFocusRef.current = { rowIndex: rowIndex + 1, colIndex };
-          handleAddRow();
-          return;
-        } else {
-          targetRow = rowIndex + 1;
+    // کلید تب: حرکت به ستون بعد یا سطر بعد
+    if (e.key === "Tab") {
+      e.preventDefault();
+      if (e.shiftKey) {
+        if (colIndex > 0) {
+          focusCell(rowIndex, colIndex - 1);
+        } else if (rowIndex > 0) {
+          focusCell(rowIndex - 1, 5);
         }
-      } else if (e.key === "ArrowLeft") {
-        // در چیدمان راست به چپ (RTL)، کلید چپ به معنی ستون بعدی (افزایش اندیس ستون) است
-        targetCol = colIndex + 1;
-      } else if (e.key === "ArrowRight") {
-        // در چیدمان راست به چپ (RTL)، کلید راست به معنی ستون قبلی (کاهش اندیس ستون) است
-        targetCol = colIndex - 1;
+      } else {
+        if (colIndex < 5) {
+          focusCell(rowIndex, colIndex + 1);
+        } else if (rowIndex < entries.length - 1) {
+          focusCell(rowIndex + 1, 0);
+        } else {
+          pendingFocusRef.current = { rowIndex: rowIndex + 1, colIndex: 0 };
+          handleAddRow();
+        }
       }
+      return;
+    }
 
-      const targetInput = document.querySelector<HTMLInputElement>(
-        `[data-row="${targetRow}"][data-col="${targetCol}"]`
-      );
-      if (targetInput) {
-        targetInput.focus();
-        targetInput.select();
+    const isArrowKey = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key);
+    if (!isArrowKey) return;
+
+    // بررسی کرسر و انتخاب در ورودی‌ها برای جابجایی هوشمند
+    const target = e.currentTarget as HTMLInputElement;
+    const isInput = target.tagName === "INPUT";
+    const valLength = isInput && typeof target.value === "string" ? target.value.length : 0;
+    const isAllSelected = isInput && target.selectionStart === 0 && target.selectionEnd === valLength;
+    const isAtStart = isInput && target.selectionStart === 0 && target.selectionEnd === 0;
+    const isAtEnd = isInput && target.selectionStart === valLength && target.selectionEnd === valLength;
+    const isCtrl = e.ctrlKey || e.metaKey;
+
+    // فلش بالا: سطر قبل
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (rowIndex > 0) {
+        focusCell(rowIndex - 1, colIndex);
       }
+      return;
+    }
+
+    // فلش پایین: سطر بعد (در صورت قرار داشتن در آخرین سطر، سطر جدید ایجاد می‌شود)
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (rowIndex === entries.length - 1) {
+        pendingFocusRef.current = { rowIndex: rowIndex + 1, colIndex };
+        handleAddRow();
+      } else {
+        focusCell(rowIndex + 1, colIndex);
+      }
+      return;
+    }
+
+    // فلش چپ: در جدول راست‌به‌چپ، جهت حرکت به سمت چپ (ستون بعدی: ۰ تا ۵)
+    if (e.key === "ArrowLeft") {
+      const shouldMove = !isInput || isCtrl || isAllSelected || isAtEnd || valLength === 0;
+      if (shouldMove) {
+        e.preventDefault();
+        if (colIndex < 5) {
+          focusCell(rowIndex, colIndex + 1);
+        }
+      }
+      return;
+    }
+
+    // فلش راست: در جدول راست‌به‌چپ، جهت حرکت به سمت راست (ستون قبلی: ۵ تا ۰)
+    if (e.key === "ArrowRight") {
+      const shouldMove = !isInput || isCtrl || isAllSelected || isAtStart || valLength === 0;
+      if (shouldMove) {
+        e.preventDefault();
+        if (colIndex > 0) {
+          focusCell(rowIndex, colIndex - 1);
+        }
+      }
+      return;
     }
   };
 
@@ -1354,6 +1459,7 @@ export default function PlannerView() {
                                   data-row={rowIndex}
                                   data-col={0}
                                   onKeyDown={(e) => handleKeyDown(e, rowIndex, 0)}
+                                  onFocus={(e) => e.target.select()}
                                   value={entry.time_slot}
                                   onChange={(e) => handleCellChange(entry.id, "time_slot", e.target.value)}
                                   placeholder="مثلاً ۰۹:۰۰"
@@ -1403,6 +1509,7 @@ export default function PlannerView() {
                                 data-row={rowIndex}
                                 data-col={1}
                                 onKeyDown={(e) => handleKeyDown(e, rowIndex, 1)}
+                                onFocus={(e) => e.target.select()}
                                 value={entry.plan_main}
                                 onChange={(e) => handleCellChange(entry.id, "plan_main", e.target.value)}
                                 placeholder="--"
@@ -1418,6 +1525,7 @@ export default function PlannerView() {
                                 data-row={rowIndex}
                                 data-col={2}
                                 onKeyDown={(e) => handleKeyDown(e, rowIndex, 2)}
+                                onFocus={(e) => e.target.select()}
                                 value={entry.plan_rest}
                                 onChange={(e) => handleCellChange(entry.id, "plan_rest", e.target.value)}
                                 placeholder="--"
@@ -1433,6 +1541,7 @@ export default function PlannerView() {
                                 data-row={rowIndex}
                                 data-col={3}
                                 onKeyDown={(e) => handleKeyDown(e, rowIndex, 3)}
+                                onFocus={(e) => e.target.select()}
                                 value={entry.actual_main}
                                 onChange={(e) => handleCellChange(entry.id, "actual_main", e.target.value)}
                                 placeholder="--"
@@ -1448,6 +1557,7 @@ export default function PlannerView() {
                                 data-row={rowIndex}
                                 data-col={4}
                                 onKeyDown={(e) => handleKeyDown(e, rowIndex, 4)}
+                                onFocus={(e) => e.target.select()}
                                 value={entry.actual_rest}
                                 onChange={(e) => handleCellChange(entry.id, "actual_rest", e.target.value)}
                                 placeholder="--"
@@ -1472,6 +1582,7 @@ export default function PlannerView() {
                                       e.stopPropagation();
                                       setActiveSubjectDropdown(entry.id);
                                       setSelectedActivityForTags(null);
+                                      e.currentTarget.select();
                                     }}
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -1486,13 +1597,22 @@ export default function PlannerView() {
                                     const parsed = parseSubject(entry.subject);
                                     return (
                                       <div
+                                        tabIndex={0}
+                                        data-row={rowIndex}
+                                        data-col={5}
+                                        onKeyDown={(e) => handleKeyDown(e, rowIndex, 5)}
+                                        onFocus={() => {
+                                          setFocusedSubjectId(entry.id);
+                                          setActiveSubjectDropdown(entry.id);
+                                          setSelectedActivityForTags(null);
+                                        }}
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           setFocusedSubjectId(entry.id);
                                           setActiveSubjectDropdown(entry.id);
                                           setSelectedActivityForTags(null);
                                         }}
-                                        className="w-full min-h-[28px] flex items-center justify-start bg-transparent hover:bg-white/5 border-0 px-2 py-1 text-xs font-semibold rounded-lg transition-all cursor-text text-right"
+                                        className="w-full min-h-[28px] flex items-center justify-start bg-transparent hover:bg-white/5 border-0 px-2 py-1 text-xs font-semibold rounded-lg transition-all cursor-text text-right outline-none focus:ring-1 focus:ring-amber-500"
                                       >
                                         {parsed.activity ? (
                                           <div className="flex items-center gap-2 select-none flex-wrap text-right">
@@ -2192,13 +2312,27 @@ export default function PlannerView() {
   );
 }
 
-// کامپوننت اختصاصی برای آمار و راندمان پیشرفته برنامه‌ریزی با تقویم ردیاب درصد
+// فرمت‌کننده زمان بر حسب ساعت و دقیقه با ارقام فارسی
+function formatDuration(secs: number): string {
+  const roundedMins = Math.round(secs / 60);
+  if (roundedMins >= 60) {
+    const h = Math.floor(roundedMins / 60);
+    const m = roundedMins % 60;
+    if (m > 0) {
+      return `${toPersianDigits(h)}h ${toPersianDigits(m)}m`;
+    }
+    return `${toPersianDigits(h)}h`;
+  }
+  return `${toPersianDigits(roundedMins)}m`;
+}
+
+// کامپوننت اختصاصی برای آمار و راندمان پیشرفته ترکیبی پلنر و تسک‌های کانبان
 function AnalyticsSection({ adherenceMap }: { adherenceMap: Record<string, number> }) {
   const { fg, fgMuted, cardBg, cardBorder, bg, isDark } = useThemeStyles();
   const today = getGregorianToday();
   const todayJalali = getTodayJalali();
   
-  // پیش‌فرض: هفته اخیر
+  // بازه انتخابی پیش‌فرض: هفته اخیر
   const [rangeFrom, setRangeFrom] = useState<string | null>(() => addDays(getGregorianToday(), -6));
   const [rangeTo, setRangeTo] = useState<string | null>(() => getGregorianToday());
   const [pickingEnd, setPickingEnd] = useState(false);
@@ -2206,18 +2340,36 @@ function AnalyticsSection({ adherenceMap }: { adherenceMap: Record<string, numbe
   const [calJm, setCalJm] = useState(todayJalali[1]);
   const [rangeConfirmed, setRangeConfirmed] = useState(true);
 
-  // تغییر انتخاب تاریخ و پشتیبانی از "انتخاب دو بار روی یک روز برای فیلتر تک روزه"
+  // داده‌های تسک‌ها و فعالیت‌های کانبان
+  const [tasks, setTasks] = useState<Task[]>(() => TaskStore.list());
+  const [activities, setActivities] = useState<RecurringActivity[]>(() => RecurringActivityStore.list());
+  const [selectedActivityIds, setSelectedActivityIds] = useState<string[]>([]);
+  const [selectedTagsByActivity, setSelectedTagsByActivity] = useState<Record<string, string[]>>({});
+
+  // همگام‌سازی لحظه‌ای داده‌ها با تغییرات برنامه
+  useEffect(() => {
+    const refreshData = () => {
+      setTasks(TaskStore.list());
+      setActivities(RecurringActivityStore.list());
+    };
+    window.addEventListener("focusflow-data-changed", refreshData);
+    window.addEventListener("focusflow-db-synced", refreshData);
+    return () => {
+      window.removeEventListener("focusflow-data-changed", refreshData);
+      window.removeEventListener("focusflow-db-synced", refreshData);
+    };
+  }, []);
+
+  // مدیریت انتخاب روزها در تقویم جلالی
   const handleDayClick = useCallback((_day: number, meta: DayMeta) => {
     if (meta.gregDate > today) return;
     
     if (!rangeFrom || !pickingEnd) {
-      // شروع کلیک جدید
       setRangeFrom(meta.gregDate);
       setRangeTo(null);
       setPickingEnd(true);
       setRangeConfirmed(false);
     } else {
-      // کلیک دوم
       const from = rangeFrom!;
       const to = meta.gregDate;
       if (to < from) {
@@ -2231,6 +2383,21 @@ function AnalyticsSection({ adherenceMap }: { adherenceMap: Record<string, numbe
     }
   }, [rangeFrom, pickingEnd, today]);
 
+  // فیلترهای اکتیویتی و تگ
+  const toggleActivity = (id: string) => {
+    setSelectedActivityIds((prev) => 
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleTagForActivity = (activityId: string, tag: string) => {
+    setSelectedTagsByActivity((prev) => {
+      const current = prev[activityId] ?? [];
+      const updated = current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag];
+      return { ...prev, [activityId]: updated };
+    });
+  };
+
   // استخراج تمام روزهای بازه انتخابی
   const allDatesInRange = useMemo(() => {
     if (!rangeFrom || !rangeTo) return [];
@@ -2243,7 +2410,7 @@ function AnalyticsSection({ adherenceMap }: { adherenceMap: Record<string, numbe
     return arr;
   }, [rangeFrom, rangeTo]);
 
-  // تجمیع کل رکوردهای برنامه‌ریزی در بازه انتخابی
+  // ۱. محاسبات آماری بخش پلنر
   const rangeStats = useMemo(() => {
     if (!rangeFrom || !rangeTo) return { totalStudy: 0, totalPlan: 0, totalRest: 0, totalActualRest: 0, count: 0, daysWithPlan: 0, averageAdherence: 0 };
     
@@ -2255,7 +2422,6 @@ function AnalyticsSection({ adherenceMap }: { adherenceMap: Record<string, numbe
     let totalPlanRest = 0;
     let totalActualRest = 0;
 
-    // گروه بندی برای درصد تحقق میانگین روزها
     const dailyMap: Record<string, { plan: number; actual: number }> = {};
 
     rangeEntries.forEach(e => {
@@ -2295,9 +2461,8 @@ function AnalyticsSection({ adherenceMap }: { adherenceMap: Record<string, numbe
     };
   }, [rangeFrom, rangeTo, rangeConfirmed]);
 
-  // تجمیع سهم هر درس بر اساس هشتگ‌ها یا موضوعات تمیز
-  // روند پیشرفت مطالعه در زمان
-  const trendLineData = useMemo(() => {
+  // نمودار روند خطی مقایسه برنامه و مطالعه واقعی پلنر
+  const plannerTrendData = useMemo(() => {
     if (!rangeFrom || !rangeTo) return [];
     const allEntries = getAllPlannerEntriesRaw();
     
@@ -2319,33 +2484,220 @@ function AnalyticsSection({ adherenceMap }: { adherenceMap: Record<string, numbe
     });
   }, [allDatesInRange, rangeConfirmed]);
 
-  // بررسی تکی یا بازه‌ای بودن انتخاب
+  // ۲. محاسبات آماری بخش تسک‌ها و فعالیت‌های کانبان
+  const tasksInRange = useMemo(() => {
+    return tasks.filter((t) => {
+      if (!t.scheduled_date) return false;
+      if (!rangeFrom || !rangeTo) return false;
+      return t.scheduled_date >= rangeFrom && t.scheduled_date <= rangeTo;
+    });
+  }, [tasks, rangeFrom, rangeTo]);
+
+  const activityFilteredTasks = useMemo(() => {
+    return tasksInRange.filter((t) => {
+      if (!t.activity_id) return false;
+      if (selectedActivityIds.length === 0) return true;
+      return selectedActivityIds.includes(t.activity_id);
+    });
+  }, [tasksInRange, selectedActivityIds]);
+
+  const filteredTasks = useMemo(() => {
+    return activityFilteredTasks.filter((t) => {
+      const actId = t.activity_id ?? "";
+      const tagsForAct = selectedTagsByActivity[actId] ?? [];
+      if (tagsForAct.length === 0) return true;
+      const taskTags = t.tags ?? [];
+      return tagsForAct.some((tag) => taskTags.includes(tag));
+    });
+  }, [activityFilteredTasks, selectedTagsByActivity]);
+
+  const timelineEntriesInRange = useMemo(() => {
+    if (!rangeFrom || !rangeTo) return [];
+    return TimelineEntryStore.listByRange(rangeFrom, rangeTo).filter((e) => {
+      if (!e.activity_id) return false;
+      if (selectedActivityIds.length === 0) return true;
+      return selectedActivityIds.includes(e.activity_id);
+    });
+  }, [rangeFrom, rangeTo, selectedActivityIds]);
+
+  const tagsByActivityId = useMemo(() => {
+    const res: Record<string, string[]> = {};
+    activityFilteredTasks.forEach((t) => {
+      const actId = t.activity_id ?? "";
+      if (!res[actId]) res[actId] = [];
+      (t.tags ?? []).forEach((tag) => {
+        if (!res[actId].includes(tag)) res[actId].push(tag);
+      });
+    });
+    return res;
+  }, [activityFilteredTasks]);
+
+  const activeActivities = useMemo(() => {
+    return selectedActivityIds.length > 0
+      ? activities.filter((a) => selectedActivityIds.includes(a.id))
+      : activities.filter((a) => activityFilteredTasks.some((t) => t.activity_id === a.id));
+  }, [activities, selectedActivityIds, activityFilteredTasks]);
+
+  const secsByActivity = useMemo(() => {
+    const map: Record<string, number> = {};
+    filteredTasks.forEach((t) => {
+      if (!t.activity_id) return;
+      map[t.activity_id] = (map[t.activity_id] || 0) + (t.elapsed_seconds || 0);
+    });
+    timelineEntriesInRange.forEach((e) => {
+      if (!e.activity_id) return;
+      const secs = e.duration_seconds ?? 0;
+      map[e.activity_id] = (map[e.activity_id] || 0) + secs;
+    });
+    return map;
+  }, [filteredTasks, timelineEntriesInRange]);
+
+  const totalTracked = useMemo(() => {
+    return Object.values(secsByActivity).reduce((a, b) => a + b, 0);
+  }, [secsByActivity]);
+
+  const totalTimelineSeconds = useMemo(() => {
+    return timelineEntriesInRange.reduce((a, e) => a + (e.duration_seconds ?? 0), 0);
+  }, [timelineEntriesInRange]);
+
+  // داده‌های نمودار دوناتی (دایره‌ای)
+  const pieData = useMemo(() => {
+    const arr: { name: string; value: number; color: string }[] = [];
+    Object.entries(secsByActivity).forEach(([actId, secs]) => {
+      if (secs <= 0) return;
+      const act = activities.find((a) => a.id === actId);
+      if (act) arr.push({ name: act.name, value: secs, color: act.color });
+    });
+    return arr;
+  }, [secsByActivity, activities]);
+
+  // داده‌های نمودار خطی کانبان
+  const activeActivitiesForChart = useMemo(() => {
+    return activities.filter((a) => selectedActivityIds.length === 0 || selectedActivityIds.includes(a.id));
+  }, [activities, selectedActivityIds]);
+
+  const kanbanLineData = useMemo(() => {
+    const dateMap = new Map<string, Record<string, number>>();
+    filteredTasks.forEach((t) => {
+      const d = t.scheduled_date;
+      if (!d || !t.activity_id) return;
+      if (!dateMap.has(d)) dateMap.set(d, {});
+      const m = dateMap.get(d)!;
+      m[t.activity_id] = (m[t.activity_id] || 0) + (t.elapsed_seconds || 0);
+    });
+
+    timelineEntriesInRange.forEach((e) => {
+      const d = e.date;
+      if (!d || !e.activity_id) return;
+      if (!dateMap.has(d)) dateMap.set(d, {});
+      const m = dateMap.get(d)!;
+      m[e.activity_id] = (m[e.activity_id] || 0) + (e.duration_seconds || 0);
+    });
+
+    return allDatesInRange.map((date) => {
+      const m = dateMap.get(date) || {};
+      const entry: Record<string, string | number> = { date: toShamsiShort(date) };
+      
+      activities.forEach((act) => {
+        if (selectedActivityIds.length === 0 || selectedActivityIds.includes(act.id)) {
+          entry[act.name] = Math.round((m[act.id] || 0) / 60);
+        }
+      });
+      
+      entry.total = Math.round(Object.values(m).reduce((a, b) => a + b, 0) / 60);
+      return entry;
+    });
+  }, [filteredTasks, timelineEntriesInRange, allDatesInRange, activities, selectedActivityIds]);
+
+  // تفکیک زمان بر اساس هر تگ
+  const tagBreakdown = useMemo(() => {
+    const tagMap: Record<string, { seconds: number; count: number; color?: string }> = {};
+    filteredTasks.forEach((t) => {
+      const act = activities.find((a) => a.id === t.activity_id);
+      const color = act?.color || "#818cf8";
+      (t.tags ?? []).forEach((tag) => {
+        if (!tagMap[tag]) {
+          tagMap[tag] = { seconds: 0, count: 0, color };
+        }
+        tagMap[tag].seconds += (t.elapsed_seconds || 0);
+        tagMap[tag].count += 1;
+      });
+    });
+    return Object.entries(tagMap)
+      .map(([tag, data]) => ({ tag, ...data }))
+      .sort((a, b) => b.seconds - a.seconds);
+  }, [filteredTasks, activities]);
+
+  // تولتیپ سفارشی نمودار خطی کانبان
+  const KanbanChartTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      const dataPoint = payload[0].payload;
+      const totalSeconds = (dataPoint.total || 0) * 60;
+
+      const itemsWithData = activeActivitiesForChart.filter(
+        (a) => dataPoint[a.name] !== undefined && dataPoint[a.name] > 0
+      );
+
+      return (
+        <div className="rounded-2xl p-3 shadow-xl border text-right text-xs space-y-2 font-sans"
+          style={{ backgroundColor: bg, borderColor: cardBorder, color: fg }}>
+          <p className="font-bold border-b pb-1 mb-1" style={{ borderColor: `${cardBorder}50` }}>
+            {label}
+          </p>
+          {itemsWithData.length > 0 ? (
+            <div className="space-y-1.5">
+              {itemsWithData.map((a) => (
+                <div key={a.id} className="flex items-center justify-between gap-6">
+                  <div className="flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: a.color }} />
+                    <span style={{ color: fgMuted }}>{a.name}:</span>
+                  </div>
+                  <span className="font-bold" style={{ color: fg }}>
+                    {formatDuration(dataPoint[a.name] * 60)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[10px]" style={{ color: fgMuted }}>هیچ فعالیتی ثبت نشده</p>
+          )}
+          <div className="border-t pt-1.5 mt-1.5 flex items-center justify-between gap-6 font-bold"
+            style={{ borderColor: `${cardBorder}50` }}>
+            <span style={{ color: fg }}>مجموع کل روز:</span>
+            <span style={{ color: "#818cf8" }}>{formatDuration(totalSeconds)}</span>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
+
   const isSingleDaySelected = rangeFrom && rangeTo && rangeFrom === rangeTo;
   const numDays = allDatesInRange.length;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 text-right">
-      {/* سایدبار سمت راست: انتخابگر تقویم و ردیاب روزانه */}
+      {/* سایدبار سمت راست: تقویم جمع‌وجور پلنر + فیلترهای تسک و تگ کانبان */}
       <div className="lg:col-span-5 space-y-4">
         <div 
-          className="p-4 rounded-3xl border space-y-3"
+          className="p-4 rounded-3xl border space-y-3.5"
           style={{ borderColor: cardBorder, backgroundColor: cardBg }}
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-gray-200">انتخاب بازه گزارش‌گیری</span>
-            <span className="text-[10px] text-gray-400">
+            <span className="text-xs font-bold" style={{ color: fg }}>انتخاب بازه گزارش‌گیری</span>
+            <span className="text-[10px]" style={{ color: fgMuted }}>
               {rangeFrom && `از: ${toShamsiShort(rangeFrom)}`}
               {rangeTo && ` تا: ${toShamsiShort(rangeTo)}`}
             </span>
           </div>
 
           {pickingEnd && (
-            <div className="p-2 rounded-xl text-center text-[10px] bg-indigo-500/10 text-indigo-400 font-bold animate-pulse">
-              حالا مجدداً روی تقویم کلیک کنید تا روز پایانی انتخاب شود. (برای تحلیل تک روز، دو بار روی یک روز بزنید)
+            <div className="p-2.5 rounded-xl text-center text-[10px] bg-indigo-500/10 text-indigo-400 font-bold animate-pulse">
+              حالا مجدداً روی تقویم کلیک کنید تا روز پایانی انتخاب شود.
             </div>
           )}
 
-          {/* تقویم جلالی با نمایش شاهکار ردیف درصد اتمام زیر هر روز */}
+          {/* تقویم جلالی جمع‌وجور با ردیاب درصدی درصد اتمام زیر هر روز */}
           <JalaliCalendar 
             jy={calJy} 
             jm={calJm}
@@ -2360,7 +2712,6 @@ function AnalyticsSection({ adherenceMap }: { adherenceMap: Record<string, numbe
               const isStart = meta.gregDate === rangeFrom;
               const isEnd = meta.gregDate === rangeTo;
               
-              // دریافت درصد تحقق
               const pct = adherenceMap[meta.gregDate];
               
               let bgColor = "transparent";
@@ -2396,7 +2747,6 @@ function AnalyticsSection({ adherenceMap }: { adherenceMap: Record<string, numbe
                     border: borderStyle,
                   }}
                 >
-                  {/* نشانگر نقطه متمایز و درخشان برای روز جاری */}
                   {meta.isToday && (
                     <div className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-sm shadow-emerald-500/50" />
                   )}
@@ -2414,11 +2764,12 @@ function AnalyticsSection({ adherenceMap }: { adherenceMap: Record<string, numbe
             }}
           />
 
-          <div className="grid grid-cols-3 gap-2.5 pt-2">
+          {/* بازه‌های سریع */}
+          <div className="grid grid-cols-3 gap-2.5 pt-1">
             {[
+              { label: "امروز", days: 1 },
               { label: "۷ روز اخیر", days: 7 }, 
-              { label: "۳۰ روز اخیر", days: 30 }, 
-              { label: "۹۰ روز اخیر", days: 90 }
+              { label: "۳۰ روز اخیر", days: 30 }
             ].map(({ label, days }) => (
               <button 
                 key={label} 
@@ -2432,7 +2783,7 @@ function AnalyticsSection({ adherenceMap }: { adherenceMap: Record<string, numbe
                   setCalJy(jd[0]); 
                   setCalJm(jd[1]); 
                 }} 
-                className="rounded-xl px-2.5 py-1.5 text-[10px] font-bold transition-all border text-gray-300 hover:bg-white/5 hover:text-white cursor-pointer" 
+                className="rounded-xl px-2 py-1.5 text-[10px] font-bold transition-all border text-gray-300 hover:bg-white/5 hover:text-white cursor-pointer" 
                 style={{ borderColor: cardBorder }}
               >
                 {label}
@@ -2440,16 +2791,87 @@ function AnalyticsSection({ adherenceMap }: { adherenceMap: Record<string, numbe
             ))}
           </div>
 
+          {/* فیلتر فعالیت‌ها و تسک‌ها (عیناً مانند کانبان در زیر تقویم) */}
+          {activities.length > 0 && (
+            <div className="space-y-2 pt-2.5 border-t" style={{ borderColor: `${cardBorder}60` }}>
+              <span className="text-xs font-semibold block" style={{ color: fgMuted }}>فیلتر فعالیت‌ها:</span>
+              <div className="flex flex-wrap gap-1.5">
+                <button 
+                  onClick={() => { setSelectedActivityIds([]); setSelectedTagsByActivity({}); }}
+                  className="rounded-lg px-2.5 py-1 text-xs font-medium transition-all cursor-pointer"
+                  style={{ 
+                    border: `1px solid ${selectedActivityIds.length === 0 ? "#6366f1" : cardBorder}`, 
+                    backgroundColor: selectedActivityIds.length === 0 ? "rgba(99,102,241,0.15)" : "transparent", 
+                    color: selectedActivityIds.length === 0 ? "#818cf8" : fgMuted 
+                  }}
+                >
+                  همه موارد
+                </button>
+                {activities.map((a) => (
+                  <button 
+                    key={a.id} 
+                    onClick={() => toggleActivity(a.id)}
+                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-all cursor-pointer"
+                    style={{ 
+                      border: `1px solid ${selectedActivityIds.includes(a.id) ? a.color : cardBorder}`, 
+                      backgroundColor: selectedActivityIds.includes(a.id) ? `${a.color}20` : "transparent", 
+                      color: selectedActivityIds.includes(a.id) ? a.color : fgMuted 
+                    }}
+                  >
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: a.color }} />
+                    {a.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* فیلتر هشتگ‌ها و تگ‌های هر فعالیت (عیناً مانند کانبان) */}
+          {activeActivities.map((act) => {
+            const tagsForAct = tagsByActivityId[act.id] ?? [];
+            if (tagsForAct.length === 0) return null;
+            const selectedTags = selectedTagsByActivity[act.id] ?? [];
+            return (
+              <div 
+                key={act.id} 
+                className="space-y-1.5 rounded-xl p-2.5"
+                style={{ border: `1px solid ${act.color}30`, backgroundColor: `${act.color}08` }}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: act.color }} />
+                  <span className="text-xs font-medium" style={{ color: act.color }}>هشتگ‌های {act.name}:</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {tagsForAct.map((tag) => (
+                    <button 
+                      key={tag} 
+                      onClick={() => toggleTagForActivity(act.id, tag)}
+                      className="rounded-lg px-2 py-0.5 text-xs transition-all cursor-pointer"
+                      style={{
+                        border: `1px solid ${selectedTags.includes(tag) ? act.color : `${act.color}40`}`,
+                        backgroundColor: selectedTags.includes(tag) ? `${act.color}20` : "transparent",
+                        color: selectedTags.includes(tag) ? act.color : fgMuted,
+                      }}
+                    >
+                      #{tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* دکمه تایید و بروزرسانی آمارها */}
           <button 
             onClick={() => { if (rangeFrom && rangeTo) setRangeConfirmed(true); }} 
             disabled={!rangeFrom || !rangeTo} 
-            className="w-full rounded-2xl bg-indigo-500 hover:bg-indigo-600 py-2.5 text-xs font-bold text-white transition-all disabled:opacity-40 cursor-pointer"
+            className="w-full rounded-2xl bg-indigo-500 hover:bg-indigo-600 py-2.5 text-xs font-bold text-white transition-all disabled:opacity-40 cursor-pointer shadow-md shadow-indigo-500/20"
           >
             تایید و بروزرسانی آمارها
           </button>
         </div>
 
-        {/* کادر کوچک راهنمای رنگ‌های درصد تحقق */}
+        {/* کادر راهنمای رنگ‌های درصد تحقق */}
         <div className="p-3 rounded-2xl border text-[9px] text-gray-400 space-y-1.5" style={{ borderColor: cardBorder, backgroundColor: cardBg }}>
           <div className="font-bold text-gray-300">راهنمای رنگ درصدهای تقویم:</div>
           <div className="flex items-center gap-4">
@@ -2461,101 +2883,344 @@ function AnalyticsSection({ adherenceMap }: { adherenceMap: Record<string, numbe
       </div>
 
       {/* بخش اصلی آمار و نمودارها در سمت چپ */}
-      <div className="lg:col-span-7 space-y-6">
+      <div className="lg:col-span-7 space-y-8">
         {rangeConfirmed && rangeFrom && rangeTo ? (
-          <div className="space-y-6">
-            {/* کارت‌های تجمیع آمار و میانگین */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="rounded-2xl p-4 text-center border" style={{ borderColor: cardBorder, backgroundColor: "rgba(99,102,241,0.06)" }}>
-                <div className="text-xl font-black text-indigo-400">
-                  {toPersianDigits(
-                    isSingleDaySelected 
-                      ? Math.round(rangeStats.totalStudy)
-                      : Math.round(rangeStats.totalStudy / numDays)
-                  )}
+          <div className="space-y-8">
+            
+            {/* ────────── بخش ۱: آمار و راندمان پلنر ────────── */}
+            <div className="space-y-5">
+              <div className="flex items-center gap-2 pb-1 border-b" style={{ borderColor: `${cardBorder}60` }}>
+                <BarChart3 className="h-4 w-4 text-indigo-400" />
+                <h2 className="text-sm font-black" style={{ color: fg }}>آمار و راندمان برنامه‌ریزی روزانه</h2>
+              </div>
+
+              {/* کارت‌های تجمیع راندمان پلنر */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="rounded-2xl p-4 text-center border" style={{ borderColor: cardBorder, backgroundColor: "rgba(99,102,241,0.06)" }}>
+                  <div className="text-xl font-black text-indigo-400">
+                    {toPersianDigits(
+                      isSingleDaySelected 
+                        ? Math.round(rangeStats.totalStudy)
+                        : Math.round(rangeStats.totalStudy / numDays)
+                    )}
+                  </div>
+                  <div className="text-[9px] mt-1 text-gray-400 font-bold">
+                    {isSingleDaySelected ? "کل مطالعه (دقیقه)" : "میانگین روزانه (دقیقه)"}
+                  </div>
                 </div>
-                <div className="text-[9px] mt-1 text-gray-400 font-bold">
-                  {isSingleDaySelected ? "کل مطالعه (دقیقه)" : "میانگین روزانه (دقیقه)"}
+
+                <div className="rounded-2xl p-4 text-center border" style={{ borderColor: cardBorder, backgroundColor: "rgba(16,185,129,0.06)" }}>
+                  <div className="text-xl font-black text-emerald-400">
+                    {toPersianDigits(
+                      isSingleDaySelected 
+                        ? Math.round(rangeStats.totalActualRest)
+                        : Math.round(rangeStats.totalActualRest / numDays)
+                    )}
+                  </div>
+                  <div className="text-[9px] mt-1 text-gray-400 font-bold">
+                    {isSingleDaySelected ? "کل استراحت (دقیقه)" : "میانگین استراحت (دقیقه)"}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl p-4 text-center border" style={{ borderColor: cardBorder, backgroundColor: "rgba(245,158,11,0.06)" }}>
+                  <div className="text-xl font-black text-amber-400">
+                    {toPersianDigits(rangeStats.averageAdherence)}٪
+                  </div>
+                  <div className="text-[9px] mt-1 text-gray-400 font-bold">میانگین عمل به برنامه</div>
                 </div>
               </div>
 
-              <div className="rounded-2xl p-4 text-center border" style={{ borderColor: cardBorder, backgroundColor: "rgba(16,185,129,0.06)" }}>
-                <div className="text-xl font-black text-emerald-400">
-                  {toPersianDigits(
-                    isSingleDaySelected 
-                      ? Math.round(rangeStats.totalActualRest)
-                      : Math.round(rangeStats.totalActualRest / numDays)
-                  )}
-                </div>
-                <div className="text-[9px] mt-1 text-gray-400 font-bold">
-                  {isSingleDaySelected ? "کل استراحت (دقیقه)" : "میانگین استراحت (دقیقه)"}
-                </div>
-              </div>
-
-              <div className="rounded-2xl p-4 text-center border" style={{ borderColor: cardBorder, backgroundColor: "rgba(245,158,11,0.06)" }}>
-                <div className="text-xl font-black text-amber-400">
-                  {toPersianDigits(rangeStats.averageAdherence)}٪
-                </div>
-                <div className="text-[9px] mt-1 text-gray-400 font-bold">میانگین عمل به برنامه</div>
-              </div>
-            </div>
-
-            {/* بخش آمار عددی دقیق‌تر */}
-            <div className="p-4 rounded-3xl border space-y-3" style={{ borderColor: cardBorder, backgroundColor: cardBg }}>
-              <h3 className="text-xs font-black text-gray-200">تحلیل کلی بازه ({toPersianDigits(numDays)} روز)</h3>
-              <div className="grid grid-cols-2 gap-4 text-xs">
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">مجموع زمان برنامه‌ریزی مطالعه:</span>
-                    <span className="font-bold text-indigo-300">{toPersianDigits(rangeStats.totalPlan)} دقیقه</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">مجموع مطالعه واقعی:</span>
-                    <span className="font-bold text-indigo-400">{toPersianDigits(rangeStats.totalStudy)} دقیقه</span>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">مجموع استراحت واقعی:</span>
-                    <span className="font-bold text-emerald-400">{toPersianDigits(rangeStats.totalActualRest)} دقیقه</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">تعداد روزهای برنامه‌ریزی شده:</span>
-                    <span className="font-bold text-amber-400">{toPersianDigits(rangeStats.daysWithPlan)} روز</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* نمودار روند خطی مقایسه برنامه و واقعی */}
-            {trendLineData.length > 1 && (
+              {/* بخش آمار عددی دقیق‌تر پلنر */}
               <div className="p-4 rounded-3xl border space-y-3" style={{ borderColor: cardBorder, backgroundColor: cardBg }}>
-                <h3 className="text-xs font-black text-gray-200">مقایسه روند مطالعه واقعی در مقابل برنامه مصوب به همراه درصد عملکرد</h3>
-                <div style={{ width: "100%", height: 260 }} dir="ltr">
-                  <ResponsiveContainer>
-                    <LineChart data={trendLineData} margin={{ top: 10, right: -5, left: -25, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"} />
-                      <XAxis dataKey="date" tick={{ fontSize: 9, fill: fgMuted }} />
-                      <YAxis yAxisId="left" tick={{ fontSize: 9, fill: fgMuted }} />
-                      <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tick={{ fontSize: 9, fill: fgMuted }} />
-                      <RechartTooltip 
-                        formatter={(value, name) => {
-                          if (name === "درصد عمل به برنامه") {
-                            return [`${toPersianDigits(Number(value))}٪`, name];
-                          }
-                          return [`${toPersianDigits(Number(value))} دقیقه`, name];
-                        }}
-                        contentStyle={{ backgroundColor: bg, border: `1px solid ${cardBorder}`, borderRadius: 12, direction: "rtl", color: fg }}
-                      />
-                      <Legend wrapperStyle={{ fontSize: 10 }} />
-                      <Line yAxisId="left" type="monotone" dataKey="برنامه مطالعه" stroke="#818cf8" strokeWidth={2} dot={false} />
-                      <Line yAxisId="left" type="monotone" dataKey="مطالعه واقعی" stroke="#f59e0b" strokeWidth={2} dot={false} />
-                      <Line yAxisId="right" type="monotone" dataKey="درصد عمل به برنامه" stroke="#10b981" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                    </LineChart>
-                  </ResponsiveContainer>
+                <h3 className="text-xs font-black" style={{ color: fg }}>تحلیل کلی بازه پلنر ({toPersianDigits(numDays)} روز)</h3>
+                <div className="grid grid-cols-2 gap-4 text-xs">
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">مجموع زمان برنامه‌ریزی مطالعه:</span>
+                      <span className="font-bold text-indigo-300">{toPersianDigits(rangeStats.totalPlan)} دقیقه</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">مجموع مطالعه واقعی:</span>
+                      <span className="font-bold text-indigo-400">{toPersianDigits(rangeStats.totalStudy)} دقیقه</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">مجموع استراحت واقعی:</span>
+                      <span className="font-bold text-emerald-400">{toPersianDigits(rangeStats.totalActualRest)} دقیقه</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">تعداد روزهای برنامه‌ریزی شده:</span>
+                      <span className="font-bold text-amber-400">{toPersianDigits(rangeStats.daysWithPlan)} روز</span>
+                    </div>
+                  </div>
                 </div>
               </div>
-            )}
+
+              {/* نمودار خطی پلنر: مقایسه برنامه در برابر عملکرد واقعی */}
+              {plannerTrendData.length > 1 && (
+                <div className="p-4 rounded-3xl border space-y-3" style={{ borderColor: cardBorder, backgroundColor: cardBg }}>
+                  <h3 className="text-xs font-black" style={{ color: fg }}>مقایسه روند مطالعه واقعی در مقابل برنامه مصوب و درصد عملکرد</h3>
+                  <div style={{ width: "100%", height: 250 }} dir="ltr">
+                    <ResponsiveContainer>
+                      <LineChart data={plannerTrendData} margin={{ top: 10, right: -5, left: -25, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"} />
+                        <XAxis dataKey="date" tick={{ fontSize: 9, fill: fgMuted }} />
+                        <YAxis yAxisId="left" tick={{ fontSize: 9, fill: fgMuted }} />
+                        <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tick={{ fontSize: 9, fill: fgMuted }} />
+                        <RechartTooltip 
+                          formatter={(value, name) => {
+                            if (name === "درصد عمل به برنامه") {
+                              return [`${toPersianDigits(Number(value))}٪`, name];
+                            }
+                            return [`${toPersianDigits(Number(value))} دقیقه`, name];
+                          }}
+                          contentStyle={{ backgroundColor: bg, border: `1px solid ${cardBorder}`, borderRadius: 12, direction: "rtl", color: fg }}
+                        />
+                        <Legend wrapperStyle={{ fontSize: 10 }} />
+                        <Line yAxisId="left" type="monotone" dataKey="برنامه مطالعه" stroke="#818cf8" strokeWidth={2} dot={false} />
+                        <Line yAxisId="left" type="monotone" dataKey="مطالعه واقعی" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                        <Line yAxisId="right" type="monotone" dataKey="درصد عمل به برنامه" stroke="#10b981" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ────────── بخش ۲: آمار و عملکرد تسک‌ها و فعالیت‌های کانبان ────────── */}
+            <div className="space-y-5 pt-4 border-t" style={{ borderColor: `${cardBorder}80` }}>
+              <div className="flex items-center justify-between pb-1">
+                <div className="flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-emerald-400" />
+                  <h2 className="text-sm font-black" style={{ color: fg }}>آمار تفکیکی تسک‌ها و فعالیت‌ها</h2>
+                </div>
+                <span className="text-[10px] text-gray-400 font-bold">
+                  {toPersianDigits(filteredTasks.length)} تسک در این بازه
+                </span>
+              </div>
+
+              {/* ۴ کارت تجمیع آماری کانبان */}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="rounded-2xl p-3 text-center" style={{ border: "1px solid rgba(99,102,241,0.25)", backgroundColor: "rgba(99,102,241,0.08)" }}>
+                  <div className="text-lg font-bold" style={{ color: "#818cf8" }}>{formatDuration(totalTracked)}</div>
+                  <div className="text-xs mt-1" style={{ color: fgMuted }}>کل زمان ثبت‌شده</div>
+                </div>
+                <div className="rounded-2xl p-3 text-center" style={{ border: "1px solid rgba(52,211,153,0.25)", backgroundColor: "rgba(52,211,153,0.08)" }}>
+                  <div className="text-lg font-bold" style={{ color: "#34d399" }}>{toPersianDigits(filteredTasks.length)}</div>
+                  <div className="text-xs mt-1" style={{ color: fgMuted }}>تعداد کل تسک‌ها</div>
+                </div>
+                <div className="rounded-2xl p-3 text-center" style={{ border: "1px solid rgba(251,191,36,0.25)", backgroundColor: "rgba(251,191,36,0.08)" }}>
+                  <div className="text-lg font-bold" style={{ color: "#fbbf24" }}>
+                    {formatDuration(totalTracked - totalTimelineSeconds > 0 ? totalTracked - totalTimelineSeconds : 0)}
+                  </div>
+                  <div className="text-xs mt-1" style={{ color: fgMuted }}>تایمر تسک‌ها</div>
+                </div>
+                <div className="rounded-2xl p-3 text-center" style={{ border: "1px solid rgba(139,92,246,0.25)", backgroundColor: "rgba(139,92,246,0.08)" }}>
+                  <div className="text-lg font-bold" style={{ color: "#a78bfa" }}>{formatDuration(totalTimelineSeconds)}</div>
+                  <div className="text-xs mt-1" style={{ color: fgMuted }}>تایم‌لاین دستی</div>
+                </div>
+              </div>
+
+              {/* نمودار دوناتی (دایره‌ای) توزیع زمان بر اساس فعالیت‌ها */}
+              {pieData.length > 0 && (
+                <div className="rounded-3xl p-4 space-y-3" style={{ border: `1px solid ${cardBorder}`, backgroundColor: cardBg }}>
+                  <h3 className="text-xs font-bold" style={{ color: fg }}>نمودار دوناتی توزیع زمان بر اساس فعالیت‌ها</h3>
+                  <div className="flex flex-col sm:flex-row items-center gap-4">
+                    <div style={{ width: "100%", maxWidth: 220, height: 220 }}>
+                      <ResponsiveContainer>
+                        <PieChart>
+                          <Pie 
+                            data={pieData} 
+                            cx="50%" 
+                            cy="50%" 
+                            innerRadius={55} 
+                            outerRadius={85} 
+                            paddingAngle={2} 
+                            dataKey="value"
+                          >
+                            {pieData.map((d, i) => (
+                              <Cell key={i} fill={d.color} />
+                            ))}
+                          </Pie>
+                          <RechartTooltip 
+                            content={({ active, payload }) => {
+                              if (active && payload && payload.length) {
+                                const item = payload[0];
+                                const color = item.payload?.color || "#818cf8";
+                                return (
+                                  <div 
+                                    className="rounded-xl px-3 py-2 text-xs shadow-xl border flex items-center gap-2.5"
+                                    style={{ backgroundColor: bg, borderColor: cardBorder, color: fg, direction: "rtl" }}
+                                  >
+                                    <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                                    <span className="font-bold">{item.name}:</span>
+                                    <span className="font-mono font-bold text-indigo-400">
+                                      {formatDuration(Number(item.value))}
+                                    </span>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="flex flex-col gap-2 flex-1 w-full">
+                      {pieData.map((d) => {
+                        const pct = totalTracked > 0 ? Math.round((d.value / totalTracked) * 100) : 0;
+                        return (
+                          <div key={d.name} className="flex items-center justify-between gap-3 p-1.5 rounded-lg hover:bg-white/5 transition-all">
+                            <div className="flex items-center gap-2">
+                              <span className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: d.color }} />
+                              <span className="text-xs font-semibold" style={{ color: fg }}>{d.name}</span>
+                            </div>
+                            <span className="text-xs font-bold font-mono" style={{ color: d.color }}>
+                              {formatDuration(d.value)} ({toPersianDigits(pct)}٪)
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* لیست و زمان صرف‌شده برای تک‌تک تسک‌های انتخاب‌شده */}
+              <div className="rounded-3xl p-4 space-y-3" style={{ border: `1px solid ${cardBorder}`, backgroundColor: cardBg }}>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold" style={{ color: fg }}>زمان صرف‌شده برای تک‌تک تسک‌ها</h3>
+                  <span className="text-[10px] text-gray-400">
+                    {filteredTasks.length === 0 ? "بدون تسک" : `${toPersianDigits(filteredTasks.length)} مورد`}
+                  </span>
+                </div>
+
+                {filteredTasks.length === 0 ? (
+                  <div className="p-6 text-center text-xs text-gray-500 rounded-2xl border border-dashed" style={{ borderColor: `${cardBorder}80` }}>
+                    هیچ تسکی با فیلترهای انتخابی در این بازه ثبت نشده است.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                    {filteredTasks.map((task) => {
+                      const act = activities.find((a) => a.id === task.activity_id);
+                      const isDone = task.status === "done";
+                      return (
+                        <div 
+                          key={task.id} 
+                          className="flex items-center justify-between gap-3 p-2.5 rounded-2xl border transition-all"
+                          style={{ 
+                            borderColor: act ? `${act.color}35` : cardBorder,
+                            backgroundColor: act ? `${act.color}08` : "rgba(255,255,255,0.02)"
+                          }}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              {act && (
+                                <span className="h-2 w-2 rounded-full flex-shrink-0" style={{ backgroundColor: act.color }} />
+                              )}
+                              <span className={`text-xs font-bold truncate ${isDone ? "line-through opacity-70" : ""}`} style={{ color: fg }}>
+                                {task.title}
+                              </span>
+                            </div>
+                            {task.tags && task.tags.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {task.tags.map((tag) => (
+                                  <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ backgroundColor: "rgba(99,102,241,0.12)", color: "#818cf8" }}>
+                                    #{tag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-3 flex-shrink-0">
+                            <span 
+                              className="text-[9px] font-bold px-2 py-0.5 rounded-lg"
+                              style={{ 
+                                backgroundColor: isDone ? "rgba(52,211,153,0.15)" : task.status === "in_progress" ? "rgba(251,191,36,0.15)" : "rgba(148,163,184,0.15)",
+                                color: isDone ? "#34d399" : task.status === "in_progress" ? "#fbbf24" : fgMuted
+                              }}
+                            >
+                              {isDone ? "انجام‌شده" : task.status === "in_progress" ? "در حال انجام" : "در انتظار"}
+                            </span>
+                            <span className="text-xs font-bold font-mono" style={{ color: "#818cf8" }}>
+                              {formatDuration(task.elapsed_seconds || 0)}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* تفکیک زمان بر اساس تک‌تک تگ‌ها */}
+              {tagBreakdown.length > 0 && (
+                <div className="rounded-3xl p-4 space-y-3" style={{ border: `1px solid ${cardBorder}`, backgroundColor: cardBg }}>
+                  <h3 className="text-xs font-bold" style={{ color: fg }}>زمان صرف‌شده به تفکیک هشتگ‌ها و تگ‌ها</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {tagBreakdown.map((item) => (
+                      <div 
+                        key={item.tag} 
+                        className="p-2.5 rounded-2xl border flex items-center justify-between gap-2"
+                        style={{ borderColor: `${item.color}35`, backgroundColor: `${item.color}0a` }}
+                      >
+                        <div className="min-w-0">
+                          <span className="text-xs font-bold block truncate" style={{ color: item.color }}>
+                            #{item.tag}
+                          </span>
+                          <span className="text-[9px] text-gray-400">
+                            {toPersianDigits(item.count)} تسک
+                          </span>
+                        </div>
+                        <span className="text-xs font-bold font-mono" style={{ color: fg }}>
+                          {formatDuration(item.seconds)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* نمودار خطی روند فعالیت‌ها در زمان (عیناً مانند کانبان) */}
+              {kanbanLineData.length > 1 && (
+                <div className="rounded-3xl p-4 space-y-3" style={{ border: `1px solid ${cardBorder}`, backgroundColor: cardBg }}>
+                  <h3 className="text-xs font-bold" style={{ color: fg }}>نمودار خطی روند فعالیت‌ها در طول زمان</h3>
+                  <div style={{ width: "100%", height: 230 }} dir="ltr">
+                    <ResponsiveContainer>
+                      <LineChart data={kanbanLineData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"} />
+                        <XAxis dataKey="date" tick={{ fontSize: 9, fill: fgMuted }} />
+                        <YAxis tick={{ fontSize: 9, fill: fgMuted }} unit="m" />
+                        <RechartTooltip content={<KanbanChartTooltip />} />
+                        {activeActivitiesForChart.map((a) => (
+                          <Line 
+                            key={a.id} 
+                            type="monotone" 
+                            dataKey={a.name} 
+                            stroke={a.color} 
+                            strokeWidth={2} 
+                            dot={{ r: 3, fill: a.color }} 
+                          />
+                        ))}
+                        {(selectedActivityIds.length === 0 || selectedActivityIds.includes("__none__")) && (
+                          <Line 
+                            type="monotone" 
+                            dataKey="بدون فعالیت" 
+                            stroke="#94a3b8" 
+                            strokeWidth={1.5} 
+                            strokeDasharray="4 4" 
+                            dot={false} 
+                          />
+                        )}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+            </div>
+
           </div>
         ) : (
           <div className="p-12 text-center text-xs text-gray-500 rounded-3xl border border-dashed" style={{ borderColor: cardBorder }}>

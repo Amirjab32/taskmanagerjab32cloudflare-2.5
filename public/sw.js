@@ -1,4 +1,4 @@
-const CACHE_NAME = "focusflow-cache-v3";
+const CACHE_NAME = "focusflow-cache-v6";
 
 // Core static assets to precache
 const PRECACHE_ASSETS = [
@@ -10,7 +10,15 @@ const PRECACHE_ASSETS = [
   "/pwa-maskable-512x512.png",
   "/apple-touch-icon.png",
   "/icon.svg",
-  "/icon.png"
+  "/icon.png",
+  "/sounds/prayer.mp3",
+  "/sounds/hygiene.mp3",
+  "/sounds/study.mp3",
+  "/sounds/workout.mp3",
+  "/sounds/water.mp3",
+  "/sounds/sleep.mp3",
+  "/sounds/work.mp3",
+  "/sounds/urgent.mp3"
 ];
 
 // Install Event: Pre-cache core assets
@@ -91,4 +99,70 @@ self.addEventListener("fetch", (event) => {
       });
     })
   );
+});
+
+// رویداد پوش آنلاین: دریافت نوتیفیکیشن از سرور زمانی که اینترنت برقرار است
+self.addEventListener("push", (event) => {
+  let data = {
+    title: "FocusFlow",
+    body: "یادآوری عادت یا تسک",
+    icon: "/pwa-192x192.png",
+    badge: "/pwa-192x192.png",
+    data: { url: "/" }
+  };
+
+  if (event.data) {
+    try {
+      data = { ...data, ...event.data.json() };
+    } catch (e) {
+      data.body = event.data.text();
+    }
+  }
+
+  const options = {
+    body: data.body,
+    icon: data.icon || "/pwa-192x192.png",
+    badge: data.badge || "/pwa-192x192.png",
+    vibrate: [250, 100, 250],
+    tag: data.tag || "focusflow-reminder",
+    renotify: true,
+    data: data.data || { url: "/" }
+  };
+
+  event.waitUntil(self.registration.showNotification(data.title, options));
+});
+
+// باز کردن برنامه با کلیک کاربر روی اعلان
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url) || "/";
+
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((windowClients) => {
+      for (const client of windowClients) {
+        if (client.url.includes(self.location.origin) && "focus" in client) {
+          return client.focus();
+        }
+      }
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+    })
+  );
+});
+
+// پیام‌های داخلی کلاینت برای نوتیفیکیشن آفلاین و محلی
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SHOW_LOCAL_NOTIFICATION") {
+    const { title, body, tag, data } = event.data;
+    self.registration.showNotification(title || "FocusFlow", {
+      body: body || "",
+      icon: "/pwa-192x192.png",
+      badge: "/pwa-192x192.png",
+      vibrate: [250, 100, 250],
+      tag: tag || "focusflow-local",
+      renotify: true,
+      data: data || { url: "/" }
+    });
+  }
 });

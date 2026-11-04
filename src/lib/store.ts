@@ -23,6 +23,8 @@ export interface Task {
   activity_id?: string | null;
   completed_at?: number | null;
   intervals?: TaskInterval[];
+  reminder_time?: string | null;
+  reminder_enabled?: boolean;
 }
 export interface RecurringActivity {
   id: string;
@@ -49,6 +51,12 @@ export interface Habit {
   is_pinned?: boolean;
   group_id?: string | null;
   order?: number;
+  reminder_time?: string | null;
+  reminder_enabled?: boolean;
+  reminder_days?: number[];
+  reminder_sound?: string;
+  reminder_vibration?: string;
+  reminder_custom_sound?: string;
 }
 export interface StudyTopic {
   id: string;
@@ -1144,30 +1152,60 @@ export function exportDatabase(): string {
   return JSON.stringify(data, null, 2);
 }
 
-export function importDatabase(jsonString: string): boolean {
+export function importDatabase(jsonString: string, forceOverride: boolean = false): boolean {
   try {
-    const parsed = JSON.parse(jsonString);
+    let parsed = JSON.parse(jsonString);
     if (typeof parsed !== "object" || parsed === null) return false;
+
+    // در صورتی که ساختار درون فیلد data بسته شده باشد (مانند بکاپ‌های سرور)
+    if (parsed.data && typeof parsed.data === "object" && !Array.isArray(parsed.data)) {
+      parsed = parsed.data;
+    }
+
+    // تایید ساختار معتبر
+    const hasKnownKey = BACKUP_KEYS.some((key) => key in parsed) ||
+      "focusflow_konkur_date" in parsed ||
+      "focusflow_planner" in parsed;
+
+    if (!hasKnownKey && Object.keys(parsed).length > 0) {
+      return false;
+    }
     
     BACKUP_KEYS.forEach((key) => {
       if (parsed[key] !== undefined) {
         if (Array.isArray(parsed[key]) || typeof parsed[key] === "object") {
           localStorage.setItem(key, JSON.stringify(parsed[key]));
         }
+      } else if (forceOverride) {
+        // اعمال حاکمیت کامل فایل: پاک‌سازی هر داده محلی که در فایل جدید وجود ندارد
+        if (key === "focusflow_going_up_settings" || key === "focusflow_going_up_state") {
+          localStorage.setItem(key, JSON.stringify({}));
+        } else {
+          localStorage.setItem(key, JSON.stringify([]));
+        }
       }
     });
+
     if (parsed["focusflow_konkur_date"]) {
       localStorage.setItem("focusflow_konkur_date", parsed["focusflow_konkur_date"]);
+    } else if (forceOverride) {
+      localStorage.removeItem("focusflow_konkur_date");
     }
+
     if (parsed["focusflow_final_exams_date"]) {
       localStorage.setItem("focusflow_final_exams_date", parsed["focusflow_final_exams_date"]);
+    } else if (forceOverride) {
+      localStorage.removeItem("focusflow_final_exams_date");
     }
+
     if (parsed["focusflow_active_preset_id"]) {
       localStorage.setItem("focusflow_active_preset_id", parsed["focusflow_active_preset_id"]);
     }
+
     if (parsed["focusflow_safe_mode"]) {
       localStorage.setItem("focusflow_safe_mode", parsed["focusflow_safe_mode"]);
     }
+
     if (parsed["focusflow-theme"]) {
       localStorage.setItem("focusflow-theme", parsed["focusflow-theme"]);
     }
@@ -1187,6 +1225,11 @@ export function importDatabase(jsonString: string): boolean {
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("focusflow-planner-timer-change", { detail: newTimer || null }));
         }
+      }
+    } else if (forceOverride) {
+      localStorage.removeItem("focusflow_active_planner_timer");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("focusflow-planner-timer-change", { detail: null }));
       }
     }
 

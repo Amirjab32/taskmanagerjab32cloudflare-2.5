@@ -1,6 +1,6 @@
 {
-  "name": "Task Manager",
-  "description": "A comprehensive task, habit, Kanban, SRS, and quiz tracker with Persian/Jalali calendar support.",
+  "name": "Remix taskmanagerAmirjab32-cloudflare-2.10",
+  "description": "Imported from GitHub",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
