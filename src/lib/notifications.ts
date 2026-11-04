@@ -350,17 +350,10 @@ export function evaluateReminders(items: ReminderItem[]): void {
 
     // الگوهای صوتی و لرزشی اختصاصی
     const vibratePattern = getVibrationPattern(item.vibration);
-    playNotificationTone(item.sound || "hygiene");
-    if (typeof navigator !== "undefined" && navigator.vibrate && vibratePattern.length > 0) {
-      try {
-        navigator.vibrate(vibratePattern);
-      } catch {}
-    }
-
-    // ارسال اعلان
     const title = "یادآوری عادت روزانه";
     const body = `زمان انجام: ${item.title}`;
 
+    // dispatchNotification خود به صورت متمرکز صدا و ویبره را یک‌بار پخش می‌کند
     dispatchNotification({
       title,
       body,

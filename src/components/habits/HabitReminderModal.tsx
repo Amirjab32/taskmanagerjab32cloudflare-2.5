@@ -49,7 +49,12 @@ const WEEK_DAYS = [
 ];
 
 export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
-  const { fg, fgMuted, cardBg, cardBorder } = useThemeStyles();
+  const { fg, fgMuted, cardBorder, isDark } = useThemeStyles();
+  const modalBg = isDark ? "#18181b" : "#ffffff";
+  const headerBg = isDark ? "#131316" : "#f8f9fa";
+  const footerBg = isDark ? "#131316" : "#f8f9fa";
+  const itemCardBg = isDark ? "#222226" : "rgba(0,0,0,0.03)";
+  const itemCardBorder = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
 
   const [permission, setPermission] = useState<NotificationPermissionState>("default");
   const [enabled, setEnabled] = useState<boolean>(habit.reminder_enabled ?? false);
@@ -156,25 +161,26 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
   const handleTestNotification = async () => {
     setTestSent(true);
     const soundToPlay = customSound || selectedSound;
-    // پخش صدای زنگ واقعی
-    playNotificationTone(soundToPlay);
-
-    // اجرای الگوی ویبره انتخاب‌شده
     const pattern = getVibrationPattern(selectedVibration);
-    if (typeof navigator !== "undefined" && navigator.vibrate && pattern.length > 0) {
-      try {
-        navigator.vibrate(pattern);
-      } catch {}
-    }
 
-    // ارسال اعلان سیستمی در صورت دسترسی
-    await dispatchNotification({
-      title: "تست اعلان عادت FocusFlow",
-      body: `یادآوری عادت «${habit.name}» با موفقیت فعال است.`,
-      tag: `test_${habit.id}`,
-      sound: soundToPlay,
-      vibrate: pattern
-    });
+    if (permission === "granted") {
+      // dispatchNotification خود به صورت متمرکز صدا و ویبره را پخش می‌کند
+      await dispatchNotification({
+        title: "تست اعلان عادت FocusFlow",
+        body: `یادآوری عادت «${habit.name}» با موفقیت فعال است.`,
+        tag: `test_${habit.id}`,
+        sound: soundToPlay,
+        vibrate: pattern
+      });
+    } else {
+      // در صورت عدم تایید دسترسی سیستم، صدا و ویبره به صورت محلی تست شوند
+      playNotificationTone(soundToPlay);
+      if (typeof navigator !== "undefined" && navigator.vibrate && pattern.length > 0) {
+        try {
+          navigator.vibrate(pattern);
+        } catch {}
+      }
+    }
 
     setTimeout(() => setTestSent(false), 2500);
   };
@@ -197,18 +203,24 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
   const currentVibeObj = VIBRATION_PRESETS.find((v) => v.id === selectedVibration) || VIBRATION_PRESETS[0];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" dir="rtl">
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 15 }}
         transition={{ duration: 0.2 }}
-        className="w-full max-w-md rounded-2xl overflow-hidden shadow-2xl"
-        style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}
+        className="w-full max-w-md rounded-2xl overflow-hidden shadow-2xl border"
+        style={{
+          backgroundColor: modalBg,
+          borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.15)",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-white/10">
+        <div
+          className="flex items-center justify-between p-4 border-b"
+          style={{ backgroundColor: headerBg, borderColor: itemCardBorder }}
+        >
           <div className="flex items-center gap-2.5">
             <div
               className="flex h-9 w-9 items-center justify-center rounded-xl"
@@ -259,7 +271,7 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
           {/* Toggle Enable */}
           <div
             className="flex items-center justify-between p-3 rounded-xl border"
-            style={{ borderColor: cardBorder, backgroundColor: "rgba(128,128,128,0.04)" }}
+            style={{ borderColor: itemCardBorder, backgroundColor: itemCardBg }}
           >
             <div className="flex items-center gap-2.5">
               {enabled ? (
@@ -314,8 +326,8 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
                     onChange={(e) => setTime(e.target.value)}
                     className="w-full rounded-xl px-4 py-2.5 text-sm font-bold text-center outline-none cursor-pointer tracking-wider"
                     style={{
-                      border: `1px solid ${cardBorder}`,
-                      backgroundColor: "rgba(128,128,128,0.06)",
+                      border: `1px solid ${itemCardBorder}`,
+                      backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
                       color: fg
                     }}
                   />
@@ -325,7 +337,7 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
               {/* Sound Selector (Standard Alarm Sounds + Custom Upload) */}
               <div
                 className="rounded-xl border overflow-hidden"
-                style={{ borderColor: cardBorder, backgroundColor: "rgba(128,128,128,0.03)" }}
+                style={{ borderColor: itemCardBorder, backgroundColor: itemCardBg }}
               >
                 <div
                   role="button"
@@ -471,7 +483,7 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
               {/* Vibration Selector */}
               <div
                 className="rounded-xl border overflow-hidden"
-                style={{ borderColor: cardBorder, backgroundColor: "rgba(128,128,128,0.03)" }}
+                style={{ borderColor: itemCardBorder, backgroundColor: itemCardBg }}
               >
                 <button
                   type="button"
@@ -525,7 +537,7 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
               {/* Days Selection Section with Toggle Arrow */}
               <div
                 className="rounded-xl border overflow-hidden"
-                style={{ borderColor: cardBorder, backgroundColor: "rgba(128,128,128,0.03)" }}
+                style={{ borderColor: itemCardBorder, backgroundColor: itemCardBg }}
               >
                 <button
                   type="button"
@@ -597,8 +609,8 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
 
               {/* Smart Behaviour Notice */}
               <div
-                className="p-2.5 rounded-xl space-y-1 text-[11px] leading-relaxed"
-                style={{ backgroundColor: "rgba(128,128,128,0.05)", color: fgMuted }}
+                className="p-2.5 rounded-xl space-y-1 text-[11px] leading-relaxed border"
+                style={{ backgroundColor: itemCardBg, borderColor: itemCardBorder, color: fgMuted }}
               >
                 <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
                   <Check className="h-3.5 w-3.5" />
@@ -631,8 +643,8 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
 
         {/* Footer Actions */}
         <div
-          className="flex items-center justify-end gap-2 p-3.5 border-t border-white/10"
-          style={{ backgroundColor: "rgba(128,128,128,0.02)" }}
+          className="flex items-center justify-end gap-2 p-3.5 border-t"
+          style={{ backgroundColor: footerBg, borderColor: itemCardBorder }}
         >
           <button
             type="button"
