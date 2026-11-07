@@ -253,8 +253,8 @@ export default {
         start_url: "/",
         scope: "/",
         display: "standalone",
-        background_color: "#0d0d0d",
-        theme_color: "#0d0d0d",
+        background_color: "#18181b",
+        theme_color: "#18181b",
         orientation: "portrait-primary",
         icons: [
           {

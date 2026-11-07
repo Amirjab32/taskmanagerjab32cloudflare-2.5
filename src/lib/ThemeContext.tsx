@@ -28,7 +28,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
     const metaThemeColor = document.querySelector('meta[name="theme-color"]');
     if (metaThemeColor) {
-      metaThemeColor.setAttribute("content", theme === "dark" ? "#0d0d0d" : "#ffffff");
+      metaThemeColor.setAttribute("content", theme === "dark" ? "#18181b" : "#ffffff");
     }
     localStorage.setItem("focusflow-theme", theme);
   }, [theme]);
