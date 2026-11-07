@@ -1,7 +1,8 @@
-// سیستم یکپارچه اعلان‌های هوشمند FocusFlow (دوگانه: پوش آنلاین + آفلاین محلی PWA)
 import { HabitStore } from "./store";
 import { getGregorianToday } from "./shamsi";
 import { AudioStorageService } from "./audioStorage";
+import { Capacitor } from "@capacitor/core";
+import { LocalNotifications } from "@capacitor/local-notifications";
 
 export type NotificationPermissionState = "default" | "granted" | "denied" | "unsupported";
 
@@ -81,18 +82,38 @@ export function markAsNotified(id: string): void {
   }
 }
 
-// بررسی وضعیت پشتیبانی و دسترسی اعلان در مرورگر
+export function clearNotified(id: string): void {
+  try {
+    const key = getTodayNotifiedKey();
+    const list = getNotifiedList().filter((k) => !k.startsWith(id));
+    localStorage.setItem(key, JSON.stringify(list));
+  } catch (e) {
+    console.error("Error clearing notified state:", e);
+  }
+}
+
+// بررسی وضعیت پشتیبانی و دسترسی اعلان در مرورگر یا اندروید بومی
 export function checkNotificationSupport(): boolean {
+  if (Capacitor.isNativePlatform()) return true;
   return typeof window !== "undefined" && "Notification" in window;
 }
 
 export function getNotificationPermission(): NotificationPermissionState {
+  if (Capacitor.isNativePlatform()) return "granted";
   if (!checkNotificationSupport()) return "unsupported";
   return Notification.permission as NotificationPermissionState;
 }
 
 // درخواست مجوز اعلان از کاربر
 export async function requestNotificationPermission(): Promise<boolean> {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const res = await LocalNotifications.requestPermissions();
+      return res.display === "granted";
+    } catch {
+      return false;
+    }
+  }
   if (!checkNotificationSupport()) return false;
   try {
     const permission = await Notification.requestPermission();
@@ -257,8 +278,31 @@ function playSynthesizedFallback(soundId: string = "hygiene"): void {
   } catch (e) {}
 }
 
-// متد ارسال اعلان (سازگار با حالت آفلاین ملی و آنلاین)
+// متد ارسال اعلان (سازگار با حالت بومی اندروید، آفلاین ملی و آنلاین)
 export async function dispatchNotification(payload: NotificationPayload): Promise<boolean> {
+  // اگر در محیط بومی اندروید (APK) باشیم، مستقیماً از سیستم بومی سیستم‌عامل استفاده می‌شود
+  if (Capacitor.isNativePlatform()) {
+    try {
+      await LocalNotifications.schedule({
+        notifications: [
+          {
+            title: payload.title,
+            body: payload.body,
+            id: Math.floor(Math.random() * 1000000),
+            schedule: { at: new Date(Date.now() + 100) },
+            sound: payload.sound ? `${payload.sound}.wav` : undefined,
+            extra: { url: payload.url || "/" }
+          }
+        ]
+      });
+      // پخش صدای کمکی همزمان
+      playNotificationTone(payload.sound || "hygiene");
+      return true;
+    } catch (capErr) {
+      console.warn("Capacitor LocalNotification failed, falling back to web:", capErr);
+    }
+  }
+
   if (!checkNotificationSupport() || Notification.permission !== "granted") {
     return false;
   }
@@ -287,6 +331,8 @@ export async function dispatchNotification(payload: NotificationPayload): Promis
           vibrate: vibratePattern,
           tag: payload.tag || "focusflow-reminder",
           renotify: true,
+          requireInteraction: true,
+          silent: false,
           data: { url: payload.url || "/" }
         } as any);
         return true;
@@ -322,36 +368,56 @@ export interface ReminderItem {
   vibration?: string;
 }
 
-// بررسی آیتم‌های دارای یادآور با ساعت فعلی سیستم
+// بررسی هوشمند آیتم‌های دارای یادآور با ساعت فعلی سیستم و مکانیزم جبرانی خواب عمیق گوشی
 export function evaluateReminders(items: ReminderItem[]): void {
   if (getNotificationPermission() !== "granted") return;
 
   const now = new Date();
-  const currentHours = String(now.getHours()).padStart(2, "0");
-  const currentMinutes = String(now.getMinutes()).padStart(2, "0");
-  const currentTimeStr = `${currentHours}:${currentMinutes}`;
+  const currentHours = now.getHours();
+  const currentMinutes = now.getMinutes();
+  const currentTotalMinutes = currentHours * 60 + currentMinutes;
   const currentDay = now.getDay(); // 0-6
 
   const notifiedList = getNotifiedList();
 
   for (const item of items) {
-    if (!item.time || item.time !== currentTimeStr) continue;
+    if (!item.time) continue;
 
     // بررسی روز هفته در صورت مشخص بودن
     if (item.daysOfWeek && item.daysOfWeek.length > 0 && !item.daysOfWeek.includes(currentDay)) {
       continue;
     }
 
-    // کلید یکتا برای امروز: ID_YYYY-MM-DD
-    const todayKey = `${item.id}_${currentTimeStr}`;
-    if (notifiedList.includes(todayKey)) {
+    const [itemHStr, itemMStr] = item.time.split(":");
+    const itemH = parseInt(itemHStr, 10);
+    const itemM = parseInt(itemMStr, 10);
+    if (isNaN(itemH) || isNaN(itemM)) continue;
+    const itemTotalMinutes = itemH * 60 + itemM;
+
+    // اگر زمان یادآور هنوز فرا نرسیده است، صرف‌نظر شود
+    if (currentTotalMinutes < itemTotalMinutes) {
+      continue;
+    }
+
+    // پنجره مجاز جبرانی (برای زمان‌هایی که گوشی در خواب عمیق یا صفحه خاموش بوده است):
+    // تا ۳ ساعت (۱۸۰ دقیقه) پس از زمان تعیین شده، در اولین فرصتی که گوشی بیدار می‌شود اعلان فعال می‌گردد
+    const delayMinutes = currentTotalMinutes - itemTotalMinutes;
+    if (delayMinutes > 180) {
+      continue;
+    }
+
+    // کلید یکتا برای بررسی ارسال امروز: ID_TIME
+    const itemKey = `${item.id}_${item.time}`;
+    if (notifiedList.includes(itemKey)) {
       continue;
     }
 
     // الگوهای صوتی و لرزشی اختصاصی
     const vibratePattern = getVibrationPattern(item.vibration);
     const title = "یادآوری عادت روزانه";
-    const body = `زمان انجام: ${item.title}`;
+    const body = delayMinutes > 1
+      ? `زمان انجام: ${item.title} (با اندکی تاخیر به دلیل بهینه‌سازی باتری سیستم‌عامل)`
+      : `زمان انجام: ${item.title}`;
 
     // dispatchNotification خود به صورت متمرکز صدا و ویبره را یک‌بار پخش می‌کند
     dispatchNotification({
@@ -363,7 +429,7 @@ export function evaluateReminders(items: ReminderItem[]): void {
       vibrate: vibratePattern,
     });
 
-    markAsNotified(todayKey);
+    markAsNotified(itemKey);
   }
 }
 
@@ -394,13 +460,30 @@ export function runActiveRemindersCheck(): void {
   }
 }
 
-// راه‌اندازی تایمر بررسی منظم هر ۳۰ ثانیه در پس‌زمینه کلاینت
+// راه‌اندازی تایمر بررسی منظم در کلاینت با لیسنرهای چندگانه بیداری صفحه و فوکوس
 export function startReminderScheduler(): () => void {
   runActiveRemindersCheck();
 
   const intervalId = setInterval(() => {
     runActiveRemindersCheck();
-  }, 30 * 1000);
+  }, 15 * 1000);
 
-  return () => clearInterval(intervalId);
+  const handleWake = () => {
+    runActiveRemindersCheck();
+  };
+
+  if (typeof window !== "undefined") {
+    window.addEventListener("focus", handleWake);
+    window.addEventListener("pageshow", handleWake);
+    document.addEventListener("visibilitychange", handleWake);
+  }
+
+  return () => {
+    clearInterval(intervalId);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("focus", handleWake);
+      window.removeEventListener("pageshow", handleWake);
+      document.removeEventListener("visibilitychange", handleWake);
+    }
+  };
 }

@@ -162,6 +162,8 @@ self.addEventListener("message", (event) => {
       vibrate: [250, 100, 250],
       tag: tag || "focusflow-local",
       renotify: true,
+      requireInteraction: true,
+      silent: false,
       data: data || { url: "/" }
     });
   }

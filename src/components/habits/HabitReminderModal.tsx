@@ -27,7 +27,9 @@ import {
   SOUND_PRESETS,
   VIBRATION_PRESETS,
   getVibrationPattern,
-  NotificationPermissionState
+  NotificationPermissionState,
+  clearNotified,
+  runActiveRemindersCheck
 } from "@/lib/notifications";
 
 interface Props {
@@ -187,6 +189,8 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
 
   const handleSave = () => {
     const isEveryDay = selectedDays.length === 7;
+    // پاک کردن وضعیت قبلی تا در صورت تنظیم مجدد ساعت، یادآور آماده اجرا شود
+    clearNotified(habit.id);
     onSave({
       reminder_enabled: enabled,
       reminder_time: time,
@@ -195,6 +199,9 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
       reminder_vibration: selectedVibration,
       reminder_custom_sound: customSound || undefined
     });
+    setTimeout(() => {
+      runActiveRemindersCheck();
+    }, 100);
     onClose();
   };
 

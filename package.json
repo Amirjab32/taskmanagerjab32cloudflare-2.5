@@ -8,9 +8,13 @@
     "build": "vite build",
     "start": "node server.ts",
     "lint": "tsc --noEmit",
-    "deploy:cf": "wrangler deploy"
+    "deploy:cf": "npm run build && wrangler deploy"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/local-notifications": "^8.3.1",
     "@google/genai": "^2.4.0",
     "@hello-pangea/dnd": "^18.0.1",
     "@tailwindcss/vite": "^4.1.14",
