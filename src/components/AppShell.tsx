@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ThemeProvider } from "@/lib/ThemeContext";
 import { useThemeStyles } from "@/lib/useThemeStyles";
@@ -494,10 +494,59 @@ function AppContent() {
   );
 }
 
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("FocusFlow App Crash caught by ErrorBoundary:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ backgroundColor: "#0d0d0d", color: "#fafafa", minHeight: "100vh", padding: 24, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", direction: "rtl", fontFamily: "system-ui, sans-serif" }}>
+          <div style={{ maxWidth: 440, width: "100%", background: "#18181b", padding: 24, borderRadius: 16, border: "1px solid rgba(255,255,255,0.1)", textAlign: "center" }}>
+            <h2 style={{ fontSize: 18, fontWeight: "bold", marginBottom: 12, color: "#f87171" }}>خطا در بارگذاری برنامه</h2>
+            <p style={{ fontSize: 13, color: "#a1a1aa", marginBottom: 16 }}>{this.state.error?.message || "خطای ناشناخته رخ داده است."}</p>
+            <button
+              onClick={() => {
+                sessionStorage.clear();
+                window.location.reload();
+              }}
+              style={{ background: "#6366f1", color: "#fff", border: "none", padding: "10px 20px", borderRadius: 10, cursor: "pointer", fontWeight: "bold", fontSize: 13 }}
+            >
+              بارگذاری مجدد
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function AppShell() {
   return (
-    <ThemeProvider>
-      <AppContent />
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <AppContent />
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
