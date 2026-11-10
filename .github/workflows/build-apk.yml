@@ -47,7 +47,8 @@ jobs:
       - name: Copy Sound Assets to Android res/raw
         run: |
           mkdir -p android/app/src/main/res/raw
-          cp -r public/sounds/* android/app/src/main/res/raw/ || true
+          cp -r public/sounds/*.mp3 android/app/src/main/res/raw/ || true
+          rm -f android/app/src/main/res/raw/*.wav || true
 
       - name: Configure Android Permissions for Exact Alarms & Wakeup
         run: |

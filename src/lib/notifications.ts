@@ -293,7 +293,7 @@ export async function dispatchNotification(payload: NotificationPayload): Promis
             body: payload.body,
             id: Math.floor(Math.random() * 1000000),
             schedule: { at: new Date(Date.now() + 100), allowWhileIdle: true },
-            sound: `${soundId}.wav`,
+            sound: `${soundId}.mp3`,
             channelId: channelId,
             extra: { url: payload.url || "/" }
           }
@@ -507,7 +507,7 @@ export async function setupAndroidNotificationChannels(): Promise<void> {
         description: `کانال هشدار بیدارباش با صدای ${preset.name}`,
         importance: 5, // IMPORTANCE_HIGH (5)
         visibility: 1, // VISIBILITY_PUBLIC (1)
-        sound: `${preset.id}.wav`, // ارجاع به فایل android/app/src/main/res/raw/<preset.id>.wav
+        sound: `${preset.id}.mp3`, // ارجاع به فایل android/app/src/main/res/raw/<preset.id>.mp3
         vibration: true,
         lights: true,
         lightColor: "#488AFF"
@@ -602,7 +602,7 @@ export async function syncScheduledHabitAlarms(): Promise<void> {
             allowWhileIdle: true
           },
           channelId: soundChannel,
-          sound: `${soundBase}.wav`,
+          sound: `${soundBase}.mp3`,
           extra: {
             habitId: habit.id,
             targetDate: targetDate.toISOString()
@@ -650,7 +650,7 @@ export async function syncScheduledHabitAlarms(): Promise<void> {
           allowWhileIdle: true
         },
         channelId: taskSoundChannel,
-        sound: `${taskSoundBase}.wav`,
+        sound: `${taskSoundBase}.mp3`,
         extra: {
           taskId: task.id,
           targetDate: targetDate.toISOString()
@@ -713,7 +713,7 @@ export async function testWakeupAlarm(seconds: number = 5): Promise<boolean> {
             allowWhileIdle: true
           },
           channelId: testChannel,
-          sound: `${testSoundBase}.wav`,
+          sound: `${testSoundBase}.mp3`,
           extra: { test: true }
         }
       ]
