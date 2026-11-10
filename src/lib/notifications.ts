@@ -284,6 +284,8 @@ export async function dispatchNotification(payload: NotificationPayload): Promis
   if (Capacitor.isNativePlatform()) {
     try {
       await setupAndroidNotificationChannels();
+      const soundId = (payload.sound || "hygiene").replace(/\.(wav|mp3)$/i, "");
+      const channelId = getChannelIdForSound(soundId);
       await LocalNotifications.schedule({
         notifications: [
           {
@@ -291,8 +293,8 @@ export async function dispatchNotification(payload: NotificationPayload): Promis
             body: payload.body,
             id: Math.floor(Math.random() * 1000000),
             schedule: { at: new Date(Date.now() + 100), allowWhileIdle: true },
-            sound: payload.sound ? `${payload.sound}.wav` : undefined,
-            channelId: "focusflow_alarms",
+            sound: `${soundId}.wav`,
+            channelId: channelId,
             extra: { url: payload.url || "/" }
           }
         ]
@@ -476,22 +478,43 @@ export function runActiveRemindersCheck(): void {
   }
 }
 
-// ایجاد کانال اعلان با بالاترین اولویت و قابلیت بیدارباش و نمایش روی صفحه قفل
+export const SOUND_CHANNEL_IDS: Record<string, string> = {
+  hygiene: "focusflow_sound_hygiene",
+  prayer: "focusflow_sound_prayer",
+  study: "focusflow_sound_study",
+  workout: "focusflow_sound_workout",
+  water: "focusflow_sound_water",
+  sleep: "focusflow_sound_sleep",
+  work: "focusflow_sound_work",
+  urgent: "focusflow_sound_urgent",
+};
+
+export function getChannelIdForSound(soundId?: string): string {
+  if (!soundId) return "focusflow_sound_hygiene";
+  const clean = soundId.replace(/\.(wav|mp3)$/i, "");
+  return SOUND_CHANNEL_IDS[clean] || "focusflow_sound_hygiene";
+}
+
+// ایجاد کانال‌های اعلان با بالاترین اولویت و متصل به فایل‌های صوتی بومی res/raw
 export async function setupAndroidNotificationChannels(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
   try {
-    await LocalNotifications.createChannel({
-      id: "focusflow_alarms",
-      name: "یادآورهای مهم و دقیق (اذان‌گو / بیدارباش)",
-      description: "اعلان‌های زنگ‌دار با اولویت بالا و بیدارباش گوشی حتی در صفحه قفل و برنامه‌های اخیر",
-      importance: 5, // IMPORTANCE_HIGH (5) causes heads-up banner & rings loudly
-      visibility: 1, // VISIBILITY_PUBLIC (1) shows on lock screen
-      vibration: true,
-      lights: true,
-      lightColor: "#488AFF"
-    });
+    for (const preset of SOUND_PRESETS) {
+      const channelId = getChannelIdForSound(preset.id);
+      await LocalNotifications.createChannel({
+        id: channelId,
+        name: `یادآور: ${preset.name}`,
+        description: `کانال هشدار بیدارباش با صدای ${preset.name}`,
+        importance: 5, // IMPORTANCE_HIGH (5)
+        visibility: 1, // VISIBILITY_PUBLIC (1)
+        sound: `${preset.id}.wav`, // ارجاع به فایل android/app/src/main/res/raw/<preset.id>.wav
+        vibration: true,
+        lights: true,
+        lightColor: "#488AFF"
+      });
+    }
   } catch (err) {
-    console.warn("Could not create Android notification channel:", err);
+    console.warn("Could not create Android notification channels:", err);
   }
 }
 
@@ -567,6 +590,9 @@ export async function syncScheduledHabitAlarms(): Promise<void> {
           continue;
         }
 
+        const soundBase = (habit.reminder_sound || "hygiene").replace(/\.(wav|mp3)$/i, "");
+        const soundChannel = getChannelIdForSound(soundBase);
+
         notificationsToSchedule.push({
           id: baseId + dayOffset,
           title: `یادآوری عادت: ${habit.name}`,
@@ -575,8 +601,8 @@ export async function syncScheduledHabitAlarms(): Promise<void> {
             at: targetDate,
             allowWhileIdle: true
           },
-          channelId: "focusflow_alarms",
-          sound: habit.reminder_sound ? `${habit.reminder_sound}.wav` : undefined,
+          channelId: soundChannel,
+          sound: `${soundBase}.wav`,
           extra: {
             habitId: habit.id,
             targetDate: targetDate.toISOString()
@@ -612,6 +638,9 @@ export async function syncScheduledHabitAlarms(): Promise<void> {
         continue;
       }
 
+      const taskSoundBase = "work";
+      const taskSoundChannel = getChannelIdForSound(taskSoundBase);
+
       notificationsToSchedule.push({
         id: baseId,
         title: `یادآوری تسک: ${task.title}`,
@@ -620,7 +649,8 @@ export async function syncScheduledHabitAlarms(): Promise<void> {
           at: targetDate,
           allowWhileIdle: true
         },
-        channelId: "focusflow_alarms",
+        channelId: taskSoundChannel,
+        sound: `${taskSoundBase}.wav`,
         extra: {
           taskId: task.id,
           targetDate: targetDate.toISOString()
@@ -668,6 +698,8 @@ export async function testWakeupAlarm(seconds: number = 5): Promise<boolean> {
     await setupAndroidNotificationChannels();
     const testId = 999999;
     const at = new Date(Date.now() + seconds * 1000);
+    const testSoundBase = "hygiene";
+    const testChannel = getChannelIdForSound(testSoundBase);
 
     await LocalNotifications.cancel({ notifications: [{ id: testId }] }).catch(() => {});
     await LocalNotifications.schedule({
@@ -680,8 +712,8 @@ export async function testWakeupAlarm(seconds: number = 5): Promise<boolean> {
             at,
             allowWhileIdle: true
           },
-          channelId: "focusflow_alarms",
-          sound: "hygiene.wav",
+          channelId: testChannel,
+          sound: `${testSoundBase}.wav`,
           extra: { test: true }
         }
       ]

@@ -44,6 +44,11 @@ jobs:
           npx cap add android || true
           npx cap sync android
 
+      - name: Copy Sound Assets to Android res/raw
+        run: |
+          mkdir -p android/app/src/main/res/raw
+          cp -r public/sounds/* android/app/src/main/res/raw/ || true
+
       - name: Configure Android Permissions for Exact Alarms & Wakeup
         run: |
           node -e '
