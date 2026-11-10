@@ -3,6 +3,7 @@
  * ذخیره در IndexedDB به همراه ادغام تغییرات تکراری و تخلیه خودکار پس از برقراری اینترنت
  */
 import { exportDatabase } from "./store";
+import { apiUrl } from "./sync";
 
 export interface QueuedMutation {
   id: string;
@@ -190,7 +191,7 @@ class OfflineQueueManager {
       const parsedData = JSON.parse(dataStr);
 
       // ارسال مستقیم آخرین حالت ادغام‌شده به سرور کلادفلر
-      const response = await fetch("/api/db?force=true", {
+      const response = await fetch(apiUrl("/api/db?force=true"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ data: parsedData }),

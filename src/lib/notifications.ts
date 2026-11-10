@@ -1,4 +1,4 @@
-import { HabitStore } from "./store";
+import { HabitStore, TaskStore } from "./store";
 import { getGregorianToday } from "./shamsi";
 import { AudioStorageService } from "./audioStorage";
 import { Capacitor } from "@capacitor/core";
@@ -283,14 +283,16 @@ export async function dispatchNotification(payload: NotificationPayload): Promis
   // اگر در محیط بومی اندروید (APK) باشیم، مستقیماً از سیستم بومی سیستم‌عامل استفاده می‌شود
   if (Capacitor.isNativePlatform()) {
     try {
+      await setupAndroidNotificationChannels();
       await LocalNotifications.schedule({
         notifications: [
           {
             title: payload.title,
             body: payload.body,
             id: Math.floor(Math.random() * 1000000),
-            schedule: { at: new Date(Date.now() + 100) },
+            schedule: { at: new Date(Date.now() + 100), allowWhileIdle: true },
             sound: payload.sound ? `${payload.sound}.wav` : undefined,
+            channelId: "focusflow_alarms",
             extra: { url: payload.url || "/" }
           }
         ]
@@ -452,16 +454,250 @@ export function runActiveRemindersCheck(): void {
       vibration: h.reminder_vibration,
     }));
 
-    if (items.length > 0) {
-      evaluateReminders(items);
+    const activeTasks = TaskStore.list().filter(
+      (t) => t.reminder_enabled && t.reminder_time && t.status !== "done" && (!t.scheduled_date || t.scheduled_date === today)
+    );
+
+    const taskItems: ReminderItem[] = activeTasks.map((t) => ({
+      id: t.id,
+      type: "task" as const,
+      title: t.title,
+      time: t.reminder_time!,
+      sound: "work",
+      vibration: "urgent"
+    }));
+
+    const allItems = [...items, ...taskItems];
+    if (allItems.length > 0) {
+      evaluateReminders(allItems);
     }
   } catch (err) {
     // نادیده گرفتن خطاها در زمان بارگذاری اولیه استور
   }
 }
 
+// ایجاد کانال اعلان با بالاترین اولویت و قابلیت بیدارباش و نمایش روی صفحه قفل
+export async function setupAndroidNotificationChannels(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+  try {
+    await LocalNotifications.createChannel({
+      id: "focusflow_alarms",
+      name: "یادآورهای مهم و دقیق (اذان‌گو / بیدارباش)",
+      description: "اعلان‌های زنگ‌دار با اولویت بالا و بیدارباش گوشی حتی در صفحه قفل و برنامه‌های اخیر",
+      importance: 5, // IMPORTANCE_HIGH (5) causes heads-up banner & rings loudly
+      visibility: 1, // VISIBILITY_PUBLIC (1) shows on lock screen
+      vibration: true,
+      lights: true,
+      lightColor: "#488AFF"
+    });
+  } catch (err) {
+    console.warn("Could not create Android notification channel:", err);
+  }
+}
+
+// بررسی وضعیت مجوز آلارم‌های دقیق در اندروید ۱۲ به بالا
+export async function checkExactAlarmPermission(): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) return true;
+  try {
+    const res = await (LocalNotifications as any).checkExactNotificationSetting?.();
+    return res?.exact_alarm === "granted";
+  } catch {
+    return true;
+  }
+}
+
+// هدایت کاربر به صفحه تنظیمات مجوز آلارم دقیق در اندروید
+export async function requestExactAlarmPermission(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+  try {
+    await (LocalNotifications as any).changeExactNotificationSetting?.();
+  } catch (err) {
+    console.warn("Could not open exact alarm setting:", err);
+  }
+}
+
+function hashStringToInt(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+let isSyncingAlarms = false;
+
+// پیش‌زمان‌بندی تمام عادت‌ها در آلارم منیجر اندروید (مشابه اذان‌گوها)
+// این متد باعث می‌شود حتی اگر برنامه کلاً از بخش برنامه‌های اخیر کشیده و بسته شود، سیستم‌عامل در ثانیه مقرر زنگ بزند
+export async function syncScheduledHabitAlarms(): Promise<void> {
+  if (!Capacitor.isNativePlatform() || isSyncingAlarms) return;
+  isSyncingAlarms = true;
+
+  try {
+    await setupAndroidNotificationChannels();
+
+    const habits = HabitStore.list().filter(
+      (h) => h.reminder_enabled && h.reminder_time
+    );
+
+    const now = new Date();
+    const notificationsToSchedule: any[] = [];
+
+    // زمان‌بندی برای ۷ روز آینده در تقویم سیستم‌عامل اندروید
+    for (const habit of habits) {
+      const [hStr, mStr] = (habit.reminder_time || "").split(":");
+      const hours = parseInt(hStr, 10);
+      const minutes = parseInt(mStr, 10);
+      if (isNaN(hours) || isNaN(minutes)) continue;
+
+      const baseId = (hashStringToInt(habit.id) % 100000) * 10;
+
+      for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+        const targetDate = new Date();
+        targetDate.setDate(now.getDate() + dayOffset);
+        targetDate.setHours(hours, minutes, 0, 0);
+
+        // اگر زمان امروز رد شده است، برای امروز زمان‌بندی نکنیم
+        if (targetDate.getTime() <= now.getTime() + 45 * 1000) {
+          continue;
+        }
+
+        const dayOfWeek = targetDate.getDay(); // 0 for Sunday ... 6 for Saturday
+        if (habit.reminder_days && habit.reminder_days.length > 0 && !habit.reminder_days.includes(dayOfWeek)) {
+          continue;
+        }
+
+        notificationsToSchedule.push({
+          id: baseId + dayOffset,
+          title: `یادآوری عادت: ${habit.name}`,
+          body: `زمان انجام عادت: ${habit.name}`,
+          schedule: {
+            at: targetDate,
+            allowWhileIdle: true
+          },
+          channelId: "focusflow_alarms",
+          sound: habit.reminder_sound ? `${habit.reminder_sound}.wav` : undefined,
+          extra: {
+            habitId: habit.id,
+            targetDate: targetDate.toISOString()
+          }
+        });
+      }
+    }
+
+    // پیش‌زمان‌بندی تسک‌های فعال در آلارم منیجر اندروید
+    const activeTasks = TaskStore.list().filter(
+      (t) => t.reminder_enabled && t.reminder_time && t.status !== "done"
+    );
+
+    for (const task of activeTasks) {
+      const [hStr, mStr] = (task.reminder_time || "").split(":");
+      const hours = parseInt(hStr, 10);
+      const minutes = parseInt(mStr, 10);
+      if (isNaN(hours) || isNaN(minutes)) continue;
+
+      const baseId = 500000 + (hashStringToInt(task.id) % 400000);
+      const targetDate = new Date();
+
+      if (task.scheduled_date) {
+        const [sy, sm, sd] = task.scheduled_date.split("-").map(Number);
+        if (!isNaN(sy) && !isNaN(sm) && !isNaN(sd)) {
+          targetDate.setFullYear(sy, sm - 1, sd);
+        }
+      }
+      targetDate.setHours(hours, minutes, 0, 0);
+
+      // اگر زمان گذشته باشد، صرف نظر شود
+      if (targetDate.getTime() <= now.getTime() + 45 * 1000) {
+        continue;
+      }
+
+      notificationsToSchedule.push({
+        id: baseId,
+        title: `یادآوری تسک: ${task.title}`,
+        body: `زمان انجام تسک: ${task.title}`,
+        schedule: {
+          at: targetDate,
+          allowWhileIdle: true
+        },
+        channelId: "focusflow_alarms",
+        extra: {
+          taskId: task.id,
+          targetDate: targetDate.toISOString()
+        }
+      });
+    }
+
+    if (notificationsToSchedule.length > 0) {
+      // لغو هشدارهای قبلی برای جلوگیری از تکرار
+      const existing = await LocalNotifications.getPending();
+      if (existing && existing.notifications && existing.notifications.length > 0) {
+        const idsToCancel = existing.notifications
+          .map((n) => n.id)
+          .filter((id) => id < 999000);
+        if (idsToCancel.length > 0) {
+          await LocalNotifications.cancel({ notifications: idsToCancel.map((id) => ({ id })) });
+        }
+      }
+
+      await LocalNotifications.schedule({
+        notifications: notificationsToSchedule
+      });
+    }
+  } catch (err) {
+    console.error("Error scheduling habit alarms to Android AlarmManager:", err);
+  } finally {
+    isSyncingAlarms = false;
+  }
+}
+
+// تست بیدارباش ۵ ثانیه‌ای برای اطمینان از عملکرد سیستم آلارم در حالت قفل صفحه
+export async function testWakeupAlarm(seconds: number = 5): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) {
+    setTimeout(() => {
+      dispatchNotification({
+        title: "تست یادآور بیدارباش FocusFlow",
+        body: "این یک اعلان آزمایشی بیدارباش است.",
+        sound: "hygiene"
+      });
+    }, seconds * 1000);
+    return true;
+  }
+
+  try {
+    await setupAndroidNotificationChannels();
+    const testId = 999999;
+    const at = new Date(Date.now() + seconds * 1000);
+
+    await LocalNotifications.cancel({ notifications: [{ id: testId }] }).catch(() => {});
+    await LocalNotifications.schedule({
+      notifications: [
+        {
+          id: testId,
+          title: "تست زنگ و بیدارباش FocusFlow",
+          body: "عالی! سیستم آلارم حتی در حالت صفحه خاموش و بسته بودن برنامه فعال است.",
+          schedule: {
+            at,
+            allowWhileIdle: true
+          },
+          channelId: "focusflow_alarms",
+          sound: "hygiene.wav",
+          extra: { test: true }
+        }
+      ]
+    });
+    return true;
+  } catch (err) {
+    console.error("Failed to schedule test wakeup alarm:", err);
+    return false;
+  }
+}
+
 // راه‌اندازی تایمر بررسی منظم در کلاینت با لیسنرهای چندگانه بیداری صفحه و فوکوس
 export function startReminderScheduler(): () => void {
+  // ۱. تنظیم کانال‌ها و همگام‌سازی اولیه آلارم‌های اندروید
+  setupAndroidNotificationChannels();
+  syncScheduledHabitAlarms();
   runActiveRemindersCheck();
 
   const intervalId = setInterval(() => {
@@ -470,12 +706,19 @@ export function startReminderScheduler(): () => void {
 
   const handleWake = () => {
     runActiveRemindersCheck();
+    syncScheduledHabitAlarms();
+  };
+
+  const handleDataChanged = () => {
+    syncScheduledHabitAlarms();
   };
 
   if (typeof window !== "undefined") {
     window.addEventListener("focus", handleWake);
     window.addEventListener("pageshow", handleWake);
     document.addEventListener("visibilitychange", handleWake);
+    window.addEventListener("focusflow-data-changed", handleDataChanged);
+    window.addEventListener("focusflow-db-synced", handleDataChanged);
   }
 
   return () => {
@@ -484,6 +727,8 @@ export function startReminderScheduler(): () => void {
       window.removeEventListener("focus", handleWake);
       window.removeEventListener("pageshow", handleWake);
       document.removeEventListener("visibilitychange", handleWake);
+      window.removeEventListener("focusflow-data-changed", handleDataChanged);
+      window.removeEventListener("focusflow-db-synced", handleDataChanged);
     }
   };
 }

@@ -5,7 +5,9 @@ const config: CapacitorConfig = {
   appName: "FocusFlow",
   webDir: "dist",
   server: {
-    androidScheme: "https"
+    androidScheme: "https",
+    cleartext: true,
+    allowNavigation: ["https://studywork.amirjab32.ir", "http://*"]
   },
   plugins: {
     LocalNotifications: {

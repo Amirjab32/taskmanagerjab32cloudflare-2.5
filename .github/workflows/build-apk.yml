@@ -28,7 +28,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '17'
+          java-version: '21'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -43,6 +43,36 @@ jobs:
         run: |
           npx cap add android || true
           npx cap sync android
+
+      - name: Configure Android Permissions for Exact Alarms & Wakeup
+        run: |
+          node -e '
+            const fs = require("fs");
+            const file = "android/app/src/main/AndroidManifest.xml";
+            if (fs.existsSync(file)) {
+              let content = fs.readFileSync(file, "utf8");
+              const perms = [
+                "android.permission.SCHEDULE_EXACT_ALARM",
+                "android.permission.USE_EXACT_ALARM",
+                "android.permission.WAKE_LOCK",
+                "android.permission.RECEIVE_BOOT_COMPLETED",
+                "android.permission.VIBRATE",
+                "android.permission.POST_NOTIFICATIONS",
+                "android.permission.SYSTEM_ALERT_WINDOW",
+                "android.permission.FOREGROUND_SERVICE",
+                "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
+              ];
+              perms.forEach(p => {
+                if (!content.includes(p)) {
+                  content = content.replace("</manifest>", `    <uses-permission android:name="${p}" />\n</manifest>`);
+                }
+              });
+              if (!content.includes("showWhenLocked")) {
+                content = content.replace("<activity", `<activity\n            android:showWhenLocked="true"\n            android:turnScreenOn="true"`);
+              }
+              fs.writeFileSync(file, content);
+            }
+          '
 
       - name: Build Android Debug APK
         run: |

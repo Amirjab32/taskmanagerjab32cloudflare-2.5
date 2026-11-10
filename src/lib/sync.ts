@@ -6,6 +6,38 @@ import { exportDatabase, importDatabase } from "./store";
 import { LocalSnapshotService } from "./localSnapshots";
 import { offlineQueue } from "./offlineQueue";
 
+/// آدرس سرور کلودفلر اختصاصی کاربر جهت هماهنگ‌سازی زنده برنامه و وب
+export const DEFAULT_CLOUDFLARE_URL = "https://studywork.amirjab32.ir";
+
+export function getApiBaseUrl(): string {
+  if (typeof window !== "undefined") {
+    // ۱. اگر کاربر آدرس سرور متفاوتی را در تنظیمات وارد کرده باشد
+    const custom = localStorage.getItem("focusflow_server_url");
+    if (custom && custom.trim()) {
+      return custom.trim().replace(/\/+$/, "");
+    }
+
+    // ۲. اگر داخل برنامه نصبی اندروید (APK / Capacitor) یا لوکال بدون سرور مستقیم باشیم
+    const isLocalOrApp =
+      window.location.protocol === "file:" ||
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1";
+
+    if (isLocalOrApp) {
+      return DEFAULT_CLOUDFLARE_URL;
+    }
+  }
+
+  // ۳. در صورتی که کاربر مستقیماً روی سایت studywork.amirjab32.ir باشد
+  return "";
+}
+
+export function apiUrl(path: string): string {
+  const base = getApiBaseUrl();
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  return base ? `${base}${cleanPath}` : cleanPath;
+}
+
 /// کلید وضعیت تغییرات ارسال‌نشده محلی در حافظه پایدار مرورگر
 const HAS_UNPUSHED_CHANGES_KEY = "focusflow_has_unpushed_changes";
 
@@ -216,7 +248,7 @@ class SyncManager {
       this.setStatus("syncing");
 
       const endpoint = force ? "/api/db?force=true" : "/api/db";
-      const response = await fetch(endpoint, {
+      const response = await fetch(apiUrl(endpoint), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -291,7 +323,7 @@ class SyncManager {
       const dataStr = exportDatabase();
       const parsedData = JSON.parse(dataStr);
 
-      const response = await fetch("/api/db?force=true", {
+      const response = await fetch(apiUrl("/api/db?force=true"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -336,7 +368,7 @@ class SyncManager {
 
     // ۳. ارسال سریع یک درخواست ریست به سرور تا فایل دیتابیس هم خالی شود
     try {
-      const response = await fetch("/api/db?reset=true", {
+      const response = await fetch(apiUrl("/api/db?reset=true"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -368,7 +400,7 @@ class SyncManager {
     }
 
     try {
-      const response = await fetch("/api/db");
+      const response = await fetch(apiUrl("/api/db"));
       if (!response.ok) {
         this.setStatus("offline");
         return false;
@@ -442,7 +474,7 @@ class SyncManager {
     if (this.isPushing) return false;
 
     try {
-      const response = await fetch("/api/db");
+      const response = await fetch(apiUrl("/api/db"));
       if (!response.ok) {
         this.setStatus("offline");
         return false;

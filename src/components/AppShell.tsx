@@ -454,7 +454,7 @@ function AppContent() {
       <footer className="mt-auto py-4 text-center text-xs select-none" style={{ color: fgMuted }}>
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border text-[11px]" style={{ borderColor: cardBorder }}>
           <span>نسخه</span>
-          <span className="font-semibold">۲.۱۶</span>
+          <span className="font-semibold">۳.۰</span>
         </div>
       </footer>
 

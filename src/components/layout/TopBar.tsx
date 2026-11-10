@@ -6,8 +6,9 @@ import { useThemeStyles } from "@/lib/useThemeStyles";
 import { syncManager, SyncStatus, SYNC_STATUS_EVENT } from "@/lib/sync";
 import { offlineQueue, OFFLINE_QUEUE_EVENT } from "@/lib/offlineQueue";
 import { TimeCheckService, TimeCheckStatus, TIME_STATUS_EVENT } from "@/lib/timeCheck";
-import { Wifi, WifiOff, RefreshCw, Laptop, AlertTriangle, X } from "lucide-react";
+import { Wifi, WifiOff, RefreshCw, Laptop, AlertTriangle, X, BellRing } from "lucide-react";
 import { PWAInstallButton } from "@/components/shared/PWAInstallButton";
+import AlarmPermissionGuideModal from "@/components/shared/AlarmPermissionGuideModal";
 
 interface Props {
   view: string;
@@ -34,6 +35,7 @@ export default function TopBar({ view, menuOpen, onMenuToggle }: Props) {
   const [isRotating, setIsRotating] = useState(false);
   const [timeStatus, setTimeStatus] = useState<TimeCheckStatus>(() => TimeCheckService.getStatus());
   const [showDriftDialog, setShowDriftDialog] = useState(false);
+  const [showAlarmGuide, setShowAlarmGuide] = useState(false);
 
   useEffect(() => {
     const handleStatusChange = (e: Event) => {
@@ -171,6 +173,15 @@ export default function TopBar({ view, menuOpen, onMenuToggle }: Props) {
             <RefreshCw className={`h-3 w-3 text-gray-400 mr-0.5 sm:mr-1 ${isRotating ? "animate-spin" : ""}`} />
           </button>
 
+          {/* دکمه راهنمای بیدارباش دقیق و تست آلارم ۵ ثانیه‌ای */}
+          <button
+            onClick={() => setShowAlarmGuide(true)}
+            title="تنظیمات بیدارباش دقیق و تست زنگ ۵ ثانیه‌ای (مانند اذان‌گو)"
+            className="flex items-center justify-center h-8 w-8 rounded-full border transition-all duration-200 hover:bg-white/10 active:scale-95 cursor-pointer text-amber-400 bg-amber-500/10 border-amber-500/30"
+          >
+            <BellRing className="h-3.5 w-3.5" />
+          </button>
+
           <ThemeToggle />
         </div>
       </div>
@@ -230,6 +241,12 @@ export default function TopBar({ view, menuOpen, onMenuToggle }: Props) {
           </div>
         </div>
       )}
+
+      {/* مودال تنظیمات بیدارباش دقیق و تست زنگ */}
+      <AlarmPermissionGuideModal
+        isOpen={showAlarmGuide}
+        onClose={() => setShowAlarmGuide(false)}
+      />
     </header>
   );
 }

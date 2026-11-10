@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Bell,
+  BellRing,
   BellOff,
   X,
   ChevronDown,
@@ -29,8 +30,10 @@ import {
   getVibrationPattern,
   NotificationPermissionState,
   clearNotified,
-  runActiveRemindersCheck
+  runActiveRemindersCheck,
+  syncScheduledHabitAlarms
 } from "@/lib/notifications";
+import AlarmPermissionGuideModal from "@/components/shared/AlarmPermissionGuideModal";
 
 interface Props {
   habit: Habit;
@@ -81,6 +84,7 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
   const [showSoundPicker, setShowSoundPicker] = useState<boolean>(false);
   const [showVibePicker, setShowVibePicker] = useState<boolean>(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [showAlarmGuide, setShowAlarmGuide] = useState<boolean>(false);
 
   const [testSent, setTestSent] = useState(false);
 
@@ -201,6 +205,7 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
     });
     setTimeout(() => {
       runActiveRemindersCheck();
+      syncScheduledHabitAlarms();
     }, 100);
     onClose();
   };
@@ -313,6 +318,21 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
               />
             </button>
           </div>
+
+          {/* Guide & Test Alarm (Azan style) */}
+          <button
+            type="button"
+            onClick={() => setShowAlarmGuide(true)}
+            className="w-full py-2.5 px-3 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/15 text-amber-300 text-xs font-bold transition-all cursor-pointer flex items-center justify-between"
+          >
+            <div className="flex items-center gap-2">
+              <BellRing className="h-4 w-4 text-amber-400" />
+              <span>تنظیم بیدارباش دقیق و تست ۵ ثانیه‌ای (مانند اذان‌گو)</span>
+            </div>
+            <span className="text-[10px] bg-amber-500/20 px-2 py-0.5 rounded-full text-amber-200">
+              راهنما و تست
+            </span>
+          </button>
 
           {enabled && (
             <motion.div
@@ -670,6 +690,11 @@ export default function HabitReminderModal({ habit, onClose, onSave }: Props) {
           </button>
         </div>
       </motion.div>
+
+      <AlarmPermissionGuideModal
+        isOpen={showAlarmGuide}
+        onClose={() => setShowAlarmGuide(false)}
+      />
     </div>
   );
 }

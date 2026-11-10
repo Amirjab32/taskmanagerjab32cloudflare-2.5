@@ -27,8 +27,8 @@ import {
 } from "lucide-react";
 import { useThemeStyles } from "@/lib/useThemeStyles";
 import { exportDatabase, importDatabase, BACKUP_KEYS } from "@/lib/store";
-import { LocalSnapshotService, LocalSnapshot } from "@/lib/localSnapshots";
-import { syncManager } from "@/lib/sync";
+import { syncManager, apiUrl } from "@/lib/sync";
+import { LocalSnapshotService, type LocalSnapshot } from "@/lib/localSnapshots";
 import { toPersianDigits } from "@/lib/shamsi";
 
 interface Props {
@@ -124,14 +124,14 @@ export default function BackupModal({ isOpen, onClose, onSuccess }: Props) {
     setServerStatus("checking");
     setError(null);
     try {
-      // ۱. تایید ارتباط با نقطه پایانی دریافت دیتابیس سرور لپ‌تاپ
-      const dbRes = await fetch("/api/db");
+      // ۱. تایید ارتباط با نقطه پایانی دریافت دیتابیس سرور لپ‌تاپ یا کلودفلر
+      const dbRes = await fetch(apiUrl("/api/db"));
       if (!dbRes.ok) throw new Error("Server database endpoint not ok");
       const dbJson = await dbRes.json();
       setServerData(dbJson.data || {});
 
-      // ۲. دریافت لیست آی‌پی‌های شبکه محلی سرور لپ‌تاپ
-      const ipRes = await fetch("/api/network-ips");
+      // ۲. دریافت لیست آی‌پی‌های شبکه محلی سرور
+      const ipRes = await fetch(apiUrl("/api/network-ips"));
       if (ipRes.ok) {
         const ipJson = await ipRes.json();
         setNetworkIps(ipJson.ips || []);
@@ -150,7 +150,7 @@ export default function BackupModal({ isOpen, onClose, onSuccess }: Props) {
   const fetchSharedFiles = async () => {
     setIsLoadingFiles(true);
     try {
-      const res = await fetch("/api/shared-files");
+      const res = await fetch(apiUrl("/api/shared-files"));
       if (res.ok) {
         const json = await res.json();
         setSharedFiles(json.files || []);
@@ -167,7 +167,7 @@ export default function BackupModal({ isOpen, onClose, onSuccess }: Props) {
     setIsLoadingAuto(true);
     setError(null);
     try {
-      const res = await fetch("/api/backups");
+      const res = await fetch(apiUrl("/api/backups"));
       if (res.ok) {
         const data = await res.json();
         setAutoBackups(data.backups || []);
@@ -193,7 +193,7 @@ export default function BackupModal({ isOpen, onClose, onSuccess }: Props) {
     setSuccessMsg(null);
 
     try {
-      const res = await fetch("/api/backups/restore", {
+      const res = await fetch(apiUrl("/api/backups/restore"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -234,7 +234,7 @@ export default function BackupModal({ isOpen, onClose, onSuccess }: Props) {
     formData.append("file", file);
 
     try {
-      const res = await fetch("/api/shared-files/upload", {
+      const res = await fetch(apiUrl("/api/shared-files/upload"), {
         method: "POST",
         body: formData,
       });
@@ -262,7 +262,7 @@ export default function BackupModal({ isOpen, onClose, onSuccess }: Props) {
     }
 
     try {
-      const res = await fetch(`/api/shared-files/${encodeURIComponent(filename)}`, {
+      const res = await fetch(apiUrl(`/api/shared-files/${encodeURIComponent(filename)}`), {
         method: "DELETE",
       });
 
@@ -450,7 +450,7 @@ export default function BackupModal({ isOpen, onClose, onSuccess }: Props) {
     setError(null);
 
     try {
-      const response = await fetch("/api/db", {
+      const response = await fetch(apiUrl("/api/db"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -578,7 +578,7 @@ export default function BackupModal({ isOpen, onClose, onSuccess }: Props) {
       if (!localSuccess) throw new Error("Failed to save merged data locally");
 
       // ارسال نسخه نهایی ادغام‌شده به سرور لپ‌تاپ جهت هماهنگی کامل فایل
-      const serverResponse = await fetch("/api/db", {
+      const serverResponse = await fetch(apiUrl("/api/db"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json"

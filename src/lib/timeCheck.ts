@@ -1,6 +1,5 @@
-/**
- * پایش هوشمند انطباق ساعت سیستم با زمان استاندارد هنگام اتصال به اینترنت
- */
+import { apiUrl } from "./sync";
+
 
 export interface TimeCheckStatus {
   checked: boolean;
@@ -29,7 +28,7 @@ export const TimeCheckService = {
 
     try {
       // ارسال یک درخواست سبک با متد HEAD برای دریافت هدر Date سرور
-      const response = await fetch("/api/db", {
+      const response = await fetch(apiUrl("/api/db"), {
         method: "HEAD",
         cache: "no-store",
       }).catch(() => null);
